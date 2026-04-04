@@ -86,11 +86,13 @@ function createSessionRoutes(deps) {
     db.prepare('INSERT INTO game_sessions (id, name, full_history, story_summary, scenario) VALUES (?, ?, ?, ?, ?)')
       .run(id, sanitizedName, '[]', '', sanitizedScenario);
 
-    // Link selected characters
+    // Link selected characters and reset inspiration for the new session
     if (validCharIds.length > 0) {
       const insertChar = db.prepare('INSERT OR IGNORE INTO session_characters (id, session_id, character_id) VALUES (?, ?, ?)');
+      const resetInspiration = db.prepare('UPDATE characters SET inspiration_points = 4 WHERE id = ?');
       for (const charId of validCharIds) {
         insertChar.run(uuidv4(), id, charId);
+        resetInspiration.run(charId);
       }
     }
 
@@ -143,15 +145,25 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
               const { POV_CONVERSION_PROMPT } = aiService;
               let parsedPOVs = {};
               if (characters.length > 0) {
+                // Build party roster so POV converter knows all character names
+                const partyRoster = characters.map(c => {
+                  let entry = `- ${c.character_name}, ${c.race} ${c.class}`;
+                  if (c.appearance) entry += ` — ${c.appearance}`;
+                  return entry;
+                }).join('\n');
+
                 const povPromises = characters.map(async (c) => {
                   try {
                     let charContext = `${c.character_name}, ${c.race} ${c.class}`;
                     if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
                     if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
 
+                    let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
+                    userContent += `\n\nSCENE TO REWRITE:\n${openingScene}`;
+
                     const povData = await aiService.callAI(aiConfig, [
                       { role: 'system', content: POV_CONVERSION_PROMPT },
-                      { role: 'user', content: `CHARACTER: ${charContext}\n\nSCENE TO REWRITE:\n${openingScene}` }
+                      { role: 'user', content: userContent }
                     ], { maxTokens: 4096, temperature: 0.7 });
                     const povText = aiService.extractAIMessage(povData);
                     if (povText) return { name: c.character_name, pov: povText.trim() };
@@ -508,8 +520,8 @@ RULES:
       if (snapshot) {
         const states = JSON.parse(snapshot.character_states);
         for (const state of states) {
-          db.prepare('UPDATE characters SET hp = ?, xp = ?, gold = ?, inventory = ?, spell_slots = ?, ac = ?, ac_effects = ? WHERE id = ?')
-            .run(state.hp, state.xp, state.gold, state.inventory, state.spell_slots, state.ac, state.ac_effects, state.id);
+          db.prepare('UPDATE characters SET hp = ?, xp = ?, gold = ?, inventory = ?, spell_slots = ?, ac = ?, ac_effects = ?, inspiration_points = COALESCE(?, inspiration_points) WHERE id = ?')
+            .run(state.hp, state.xp, state.gold, state.inventory, state.spell_slots, state.ac, state.ac_effects, state.inspiration_points ?? null, state.id);
         }
         // Delete the used snapshot so the new turn creates a fresh one
         db.prepare('DELETE FROM game_snapshots WHERE id = ?').run(snapshot.id);

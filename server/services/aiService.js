@@ -401,7 +401,13 @@ RULES:
 - Keep the same level of detail — do NOT shorten or summarize
 - Do NOT add new events, dialogue, or plot points that aren't in the original scene
 - Do NOT include any tracking tags ([HP:], [XP:], etc.) or [CHOICE:] tags — those are handled separately
-- Output ONLY the rewritten narration — no commentary, no labels, no meta text`;
+- Output ONLY the rewritten narration — no commentary, no labels, no meta text
+
+CRITICAL — CHARACTER NAMES:
+- You will receive a PARTY MEMBERS list and optionally a STORY CONTEXT section
+- Use ONLY the character names from the party list and the original scene — do NOT invent, substitute, or hallucinate names
+- If the story context mentions aliases, disguises, or secret identities, respect them: use the name each character would know
+- When in doubt, preserve the exact name used in the original scene`;
 
 /**
  * Character Creation System Prompt

@@ -322,15 +322,31 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   let parsedPOVs = {};
   if (characters.length > 0) {
     console.log(`Converting scene to POV for ${characters.length} characters...`);
+
+    // Build shared party roster so the POV converter knows all character names/identities
+    const partyRoster = characters.map(c => {
+      let entry = `- ${c.character_name}, ${c.race} ${c.class}`;
+      if (c.appearance) entry += ` — ${c.appearance}`;
+      return entry;
+    }).join('\n');
+
+    const storySummary = session.story_summary || '';
+
     const povPromises = characters.map(async (c) => {
       try {
         let charContext = `${c.character_name}, ${c.race} ${c.class}`;
         if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
         if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
 
+        let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
+        if (storySummary) {
+          userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
+        }
+        userContent += `\n\nSCENE TO REWRITE:\n${cleanedResponse}`;
+
         const povMessages = [
           { role: 'system', content: POV_CONVERSION_PROMPT },
-          { role: 'user', content: `CHARACTER: ${charContext}\n\nSCENE TO REWRITE:\n${cleanedResponse}` }
+          { role: 'user', content: userContent }
         ];
         const povData = await callAI(aiCallConfig, povMessages, { maxTokens: 8192, temperature: 0.7 });
         const povText = extractAIMessage(povData);
@@ -367,7 +383,8 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
       xp: c.xp, gold: c.gold,
       inventory: c.inventory,
       spell_slots: c.spell_slots,
-      ac_effects: c.ac_effects
+      ac_effects: c.ac_effects,
+      inspiration_points: c.inspiration_points
     }));
     db.prepare('INSERT INTO game_snapshots (id, session_id, turn_number, character_states) VALUES (?, ?, ?, ?)')
       .run(uuidv4(), sessionId, session.current_turn, JSON.stringify(characterStates));
@@ -655,6 +672,15 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
     io.emit('turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
 
+    // Build shared party roster so the POV converter knows all character names/identities
+    const partyRoster = characters.map(c => {
+      let entry = `- ${c.character_name}, ${c.race} ${c.class}`;
+      if (c.appearance) entry += ` — ${c.appearance}`;
+      return entry;
+    }).join('\n');
+
+    const storySummary = session.story_summary || '';
+
     const povConfig = {
       endpoint: apiConfig.api_endpoint,
       api_key: apiConfig.api_key,
@@ -666,9 +692,15 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
         if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
         if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
 
+        let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
+        if (storySummary) {
+          userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
+        }
+        userContent += `\n\nSCENE TO REWRITE:\n${cleanedResponse}`;
+
         const povMessages = [
           { role: 'system', content: POV_CONVERSION_PROMPT },
-          { role: 'user', content: `CHARACTER: ${charContext}\n\nSCENE TO REWRITE:\n${cleanedResponse}` }
+          { role: 'user', content: userContent }
         ];
         const { callAI: callAIForPOV } = require('./aiService');
         const povData = await callAIForPOV(povConfig, povMessages, { maxTokens: 8192, temperature: 0.7 });
@@ -707,7 +739,8 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
       xp: c.xp, gold: c.gold,
       inventory: c.inventory,
       spell_slots: c.spell_slots,
-      ac_effects: c.ac_effects
+      ac_effects: c.ac_effects,
+      inspiration_points: c.inspiration_points
     }));
     db.prepare('INSERT INTO game_snapshots (id, session_id, turn_number, character_states) VALUES (?, ?, ?, ?)')
       .run(uuidv4(), sessionId, session.current_turn, JSON.stringify(characterStates));
