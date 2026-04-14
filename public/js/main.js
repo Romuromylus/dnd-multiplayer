@@ -226,9 +226,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize weather effect system (starts disabled)
   initWeather();
 
-  // Initialize character builder form
-  initCharacterBuilder();
-
   // Initialize avatar click-to-upload
   initAvatarUpload();
 
@@ -373,6 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 
 let appStarted = false;
+let builderInitialized = false;
 
 async function initializeAuthenticatedApp() {
   const restored = await restoreSession();
@@ -385,6 +383,11 @@ async function initializeAuthenticatedApp() {
   if (!appStarted) {
     appStarted = true;
     document.getElementById('app-screen').classList.add('active');
+
+    if (!builderInitialized) {
+      initCharacterBuilder();
+      builderInitialized = true;
+    }
 
     if (!restored) {
       initSocket();
