@@ -5,7 +5,7 @@
 import { getState, setState } from './state.js';
 
 export async function api(endpoint, method = 'GET', body = null) {
-  const { adminPassword } = getState();
+  const { gamePassword, adminPassword } = getState();
 
   const options = {
     method,
@@ -13,6 +13,10 @@ export async function api(endpoint, method = 'GET', body = null) {
       'Content-Type': 'application/json'
     }
   };
+
+  if (gamePassword) {
+    options.headers['X-Game-Password'] = gamePassword;
+  }
 
   // Add admin password header if authenticated
   if (adminPassword) {
@@ -24,6 +28,11 @@ export async function api(endpoint, method = 'GET', body = null) {
   }
 
   const response = await fetch(endpoint, options);
+
+  if (response.status === 401) {
+    setState({ isGameAuthenticated: false, gamePassword: '', isAdminAuthenticated: false, adminPassword: '' });
+    throw new Error('Game authentication required');
+  }
 
   if (response.status === 403) {
     setState({ isAdminAuthenticated: false, adminPassword: '' });

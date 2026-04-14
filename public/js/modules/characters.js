@@ -131,8 +131,9 @@ export function formatSpellSlots(spellSlots) {
 
   return '<strong>Spell Slots:</strong> ' + levels.map(lvl => {
     const slot = spellSlots[lvl];
-    const available = (slot.max || 0) - (slot.used || 0);
-    return `${lvl}st: ${available}/${slot.max || 0}`;
+    const max = slot.max || 0;
+    const current = Math.max(0, Math.min(max, slot.current ?? max));
+    return `${lvl}st: ${current}/${max}`;
   }).join(' | ').replace(/1st/g, '1st').replace(/2st/g, '2nd').replace(/3st/g, '3rd');
 }
 
@@ -142,8 +143,9 @@ export function formatSpellSlotsShort(spellSlots) {
 
   return 'Slots: ' + levels.map(lvl => {
     const slot = spellSlots[lvl];
-    const available = (slot.max || 0) - (slot.used || 0);
-    return `L${lvl}:${available}/${slot.max || 0}`;
+    const max = slot.max || 0;
+    const current = Math.max(0, Math.min(max, slot.current ?? max));
+    return `L${lvl}:${current}/${max}`;
   }).join(' ');
 }
 
@@ -483,17 +485,8 @@ export async function resetLevel(id, name) {
     showNotification(`Resetting ${name} to Level 1... (AI is analyzing features to keep)`);
     const result = await api(`/api/characters/${id}/reset-level`, 'POST');
 
-    let message = `${name} reset to Level 1 (HP: ${result.newHP})`;
-    const kept = [];
-    if (result.keptSpells) kept.push(`Spells: ${result.keptSpells}`);
-    if (result.keptSkills) kept.push(`Skills: ${result.keptSkills}`);
-    if (result.keptPassives) kept.push(`Passives: ${result.keptPassives}`);
-    if (result.keptFeats) kept.push(`Feats: ${result.keptFeats}`);
-    if (result.keptClassFeatures) kept.push(`Features: ${result.keptClassFeatures}`);
-
-    if (kept.length > 0) {
-      message += `\nKept: ${kept.join(', ')}`;
-    }
+    const hpValue = result?.max_hp ?? result?.hp ?? result?.character?.max_hp ?? result?.character?.hp ?? '?';
+    const message = `${name} reset to Level 1 (HP: ${hpValue})`;
 
     showNotification(message);
     loadCharacters();
@@ -647,7 +640,10 @@ export function initAvatarUpload() {
     try {
       const res = await fetch(`/api/characters/${avatarTargetCharId}/image`, {
         method: 'POST',
-        headers: { 'X-Admin-Password': getState('adminPassword') || '' },
+        headers: {
+          'X-Game-Password': getState('gamePassword') || '',
+          'X-Admin-Password': getState('adminPassword') || ''
+        },
         body: formData
       });
       if (!res.ok) throw new Error('Upload failed');

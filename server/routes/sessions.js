@@ -29,7 +29,7 @@ const tagParser = require('../services/tagParser');
  */
 function createSessionRoutes(deps) {
   const {
-    db, io, auth, aiService,
+    db, io, auth, aiService, emitToSession,
     processingSessions,
     getActiveApiConfig,
     processAITurn,
@@ -46,6 +46,10 @@ function createSessionRoutes(deps) {
   const { checkPassword, checkAdminPassword } = auth;
   const { findCharacterByName } = tagParser;
 
+  const sendToSession = typeof emitToSession === 'function'
+    ? emitToSession
+    : (sessionId, event, payload) => io.emit(event, payload);
+
   // Helper to get session characters
   function getSessionCharacters(sessionId) {
     if (getSessionCharactersFn) {
@@ -58,6 +62,11 @@ function createSessionRoutes(deps) {
       WHERE sc.session_id = ?
       ORDER BY c.created_at DESC
     `).all(sessionId);
+  }
+
+  function isCharacterInSession(sessionId, characterId) {
+    const row = db.prepare('SELECT 1 FROM session_characters WHERE session_id = ? AND character_id = ?').get(sessionId, characterId);
+    return !!row;
   }
 
   /**
@@ -216,7 +225,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * DELETE /api/sessions/:id
    * Delete session and associated data
    */
-  router.delete('/:id', checkPassword, (req, res) => {
+  router.delete('/:id', checkPassword, checkAdminPassword, (req, res) => {
     const sessionId = req.params.id;
 
     try {
@@ -246,11 +255,19 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const { character_id, action } = req.body;
     const sessionId = req.params.id;
 
+    if (!character_id) {
+      return res.status(400).json({ error: 'character_id is required' });
+    }
+
     if (processingSessions.has(sessionId)) {
       return res.status(409).json({
         error: 'Turn is currently being processed. Please wait for the Narrator to finish.',
         processing: true
       });
+    }
+
+    if (!isCharacterInSession(sessionId, character_id)) {
+      return res.status(403).json({ error: 'Character is not part of this session' });
     }
 
     const existing = db.prepare('SELECT * FROM pending_actions WHERE session_id = ? AND character_id = ?').get(sessionId, character_id);
@@ -263,18 +280,18 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
     const characters = getSessionCharacters(sessionId);
 
-    io.emit('action_submitted', { sessionId, pendingActions, character_id });
+    sendToSession(sessionId, 'action_submitted', { sessionId, pendingActions, character_id });
 
     if (pendingActions.length >= characters.length && characters.length > 0) {
       processingSessions.add(sessionId);
-      io.emit('turn_processing', { sessionId });
+      sendToSession(sessionId, 'turn_processing', { sessionId });
 
       try {
         const result = await processAITurn(sessionId, pendingActions, characters);
         res.json({ processed: true, result });
       } catch (error) {
         console.error('AI processing error:', error);
-        io.emit('turn_error', { sessionId, error: error.message });
+        sendToSession(sessionId, 'turn_error', { sessionId, error: error.message });
         res.json({ processed: false, error: error.message });
       } finally {
         processingSessions.delete(sessionId);
@@ -294,7 +311,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     db.prepare('DELETE FROM pending_actions WHERE session_id = ? AND character_id = ?').run(sessionId, characterId);
 
     const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
-    io.emit('action_cancelled', { sessionId, pendingActions, character_id: characterId });
+    sendToSession(sessionId, 'action_cancelled', { sessionId, pendingActions, character_id: characterId });
 
     res.json({ success: true, pendingActions });
   });
@@ -303,7 +320,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * POST /api/sessions/:id/process
    * Force process turn (DM override)
    */
-  router.post('/:id/process', checkPassword, async (req, res) => {
+  router.post('/:id/process', checkPassword, checkAdminPassword, async (req, res) => {
     const sessionId = req.params.id;
 
     if (processingSessions.has(sessionId)) {
@@ -314,14 +331,14 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const characters = getSessionCharacters(sessionId);
 
     processingSessions.add(sessionId);
-    io.emit('turn_processing', { sessionId });
+    sendToSession(sessionId, 'turn_processing', { sessionId });
 
     try {
       const result = await processAITurn(sessionId, pendingActions, characters);
       res.json({ success: true, result });
     } catch (error) {
       console.error('AI processing error:', error);
-      io.emit('turn_error', { sessionId, error: error.message });
+      sendToSession(sessionId, 'turn_error', { sessionId, error: error.message });
       res.status(500).json({ error: error.message });
     } finally {
       processingSessions.delete(sessionId);
@@ -425,7 +442,7 @@ RULES:
       const choices = tagParser.parseChoices(responseText, characters);
       console.log(`Parsed ${choices.length} choices from response`);
       if (choices.length > 0) {
-        io.emit('choices_generated', { sessionId, choices });
+        sendToSession(sessionId, 'choices_generated', { sessionId, choices });
       }
       res.json({ success: true, choices });
     } catch (error) {
@@ -545,7 +562,7 @@ RULES:
     console.log(`Reroll initiated for session ${sessionId}: removed last response, ${actionsThisTurn.length} actions restored`);
 
     processingSessions.add(sessionId);
-    io.emit('reroll_started', { sessionId });
+    sendToSession(sessionId, 'reroll_started', { sessionId });
 
     try {
       const result = await processAITurn(sessionId, pendingActions, characters);
@@ -566,6 +583,13 @@ RULES:
     const sessionId = req.params.id;
     const { character_id, context } = req.body;
 
+    if (processingSessions.has(sessionId)) {
+      return res.status(409).json({
+        error: 'Turn is currently being processed. Please wait for the Narrator to finish.',
+        processing: true
+      });
+    }
+
     if (!character_id) {
       return res.status(400).json({ error: 'Character ID is required' });
     }
@@ -578,6 +602,10 @@ RULES:
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(character_id);
     if (!character) {
       return res.status(404).json({ error: 'Character not found' });
+    }
+
+    if (!isCharacterInSession(sessionId, character_id)) {
+      return res.status(403).json({ error: 'Character is not part of this session' });
     }
 
     const storySummary = session.story_summary || '';
@@ -702,11 +730,11 @@ Generate ONLY a brief action description.`;
       const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
       const characters = getSessionCharacters(sessionId);
 
-      io.emit('action_submitted', { sessionId, pendingActions, character_id });
+      sendToSession(sessionId, 'action_submitted', { sessionId, pendingActions, character_id });
 
       if (pendingActions.length >= characters.length && characters.length > 0) {
         processingSessions.add(sessionId);
-        io.emit('turn_processing', { sessionId });
+        sendToSession(sessionId, 'turn_processing', { sessionId });
 
         try {
           const result = await processAITurn(sessionId, pendingActions, characters);
@@ -815,7 +843,7 @@ Generate ONLY a brief action description.`;
       db.prepare('UPDATE game_sessions SET story_summary = ?, compacted_count = ?, total_tokens = 0 WHERE id = ?')
         .run(newSummary, fullHistory.length, sessionId);
 
-      io.emit('session_compacted', { sessionId, compactedCount: fullHistory.length });
+      sendToSession(sessionId, 'session_compacted', { sessionId, compactedCount: fullHistory.length });
 
       res.json({
         success: true,
@@ -834,7 +862,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/delete-message
    * Delete message from session history
    */
-  router.post('/:id/delete-message', checkPassword, (req, res) => {
+  router.post('/:id/delete-message', checkPassword, checkAdminPassword, (req, res) => {
     const sessionId = req.params.id;
     const { index } = req.body;
 
@@ -865,7 +893,7 @@ Generate ONLY a brief action description.`;
       db.prepare('UPDATE game_sessions SET full_history = ?, compacted_count = ? WHERE id = ?')
         .run(JSON.stringify(history), compactedCount, sessionId);
 
-      io.emit('session_updated', { id: sessionId });
+      sendToSession(sessionId, 'session_updated', { id: sessionId });
 
       console.log(`Deleted message at index ${index} from session ${sessionId}:`, deletedMessage?.type || deletedMessage?.role);
       if (compactedCount !== (session.compacted_count || 0)) {
@@ -930,7 +958,7 @@ Generate ONLY a brief action description.`;
 
     const updatedCharacters = getSessionCharacters(sessionId);
     for (const char of updatedCharacters) {
-      io.emit('character_updated', char);
+      sendToSession(sessionId, 'character_updated', char);
     }
 
     res.json({ success: true, xpAwarded });
@@ -1030,7 +1058,7 @@ Generate ONLY a brief action description.`;
 
     const updatedCharacters = getSessionCharacters(sessionId);
     for (const char of updatedCharacters) {
-      io.emit('character_updated', char);
+      sendToSession(sessionId, 'character_updated', char);
     }
 
     res.json({ success: true, goldAwarded, inventoryChanges });
@@ -1110,7 +1138,7 @@ Generate ONLY a brief action description.`;
 
     const updatedCharacters = getSessionCharacters(sessionId);
     for (const char of updatedCharacters) {
-      io.emit('character_updated', char);
+      sendToSession(sessionId, 'character_updated', char);
     }
 
     res.json({ success: true, inventoryChanges });
@@ -1336,7 +1364,7 @@ Generate ONLY a brief action description.`;
 
     const updatedCharacters = getSessionCharacters(sessionId);
     for (const char of updatedCharacters) {
-      io.emit('character_updated', char);
+      sendToSession(sessionId, 'character_updated', char);
     }
 
     res.json({ success: true, ...results });
@@ -1346,7 +1374,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/add-character
    * Add a character to the session
    */
-  router.post('/:id/add-character', checkPassword, (req, res) => {
+  router.post('/:id/add-character', checkPassword, checkAdminPassword, (req, res) => {
     const sessionId = req.params.id;
     const { characterId } = req.body;
 
@@ -1368,7 +1396,7 @@ Generate ONLY a brief action description.`;
       .run(uuidv4(), sessionId, characterId);
 
     const sessionChars = getSessionCharacters(sessionId);
-    io.emit('session_updated', { id: sessionId });
+    sendToSession(sessionId, 'session_updated', { id: sessionId });
 
     console.log(`Character ${character.character_name} added to session ${session.name}`);
     res.json({ success: true, sessionCharacters: sessionChars });
@@ -1378,7 +1406,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/remove-character
    * Remove a character from the session
    */
-  router.post('/:id/remove-character', checkPassword, (req, res) => {
+  router.post('/:id/remove-character', checkPassword, checkAdminPassword, (req, res) => {
     const sessionId = req.params.id;
     const { characterId } = req.body;
 
@@ -1399,7 +1427,7 @@ Generate ONLY a brief action description.`;
       .run(sessionId, characterId);
 
     const sessionChars = getSessionCharacters(sessionId);
-    io.emit('session_updated', { id: sessionId });
+    sendToSession(sessionId, 'session_updated', { id: sessionId });
 
     console.log(`Character ${characterId} removed from session ${session.name}`);
     res.json({ success: true, sessionCharacters: sessionChars });

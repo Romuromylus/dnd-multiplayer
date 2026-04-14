@@ -41,13 +41,15 @@ npm install
 
 ### Configuration
 
-Set environment variables (optional - defaults provided):
+Set environment variables (required for predictable production auth):
 
 ```bash
-export GAME_PASSWORD=yourpassword      # Default: changeme
-export ADMIN_PASSWORD=youradminpassword # Default: admin123
-export PORT=3000                        # Default: 3000
+export GAME_PASSWORD=yourpassword
+export ADMIN_PASSWORD=youradminpassword
+export PORT=3000
 ```
+
+If `GAME_PASSWORD` or `ADMIN_PASSWORD` is missing, the server will generate a random password on first run and print it to logs.
 
 ### Running
 
@@ -71,6 +73,19 @@ docker run -p 3000:3000 -v ./data:/app/data -e GAME_PASSWORD=secret -e ADMIN_PAS
 2. Go to **Settings** (requires admin password)
 3. Configure your AI API endpoint, key, and model
 4. Test the connection
+
+Note: if EasyPanel/Traefik basic auth is enabled, users will authenticate twice (proxy layer + in-app game password).
+
+### SSRF Protection
+
+- API endpoint validation blocks localhost/private IP targets by default.
+- `https://` endpoints are required by default.
+- Override only when intentionally needed:
+
+```bash
+export ALLOW_PRIVATE_AI_ENDPOINTS=false
+export ALLOW_INSECURE_AI_ENDPOINTS=false
+```
 
 ### Creating Characters
 1. Go to **Characters** tab

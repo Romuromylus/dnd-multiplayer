@@ -11,11 +11,25 @@ const bcrypt = require('bcryptjs');
  * @returns {Object} Middleware functions
  */
 function createAuthMiddleware(db) {
+  function getSettingHash(key) {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row?.value || null;
+  }
+
+  function verifyGamePassword(password) {
+    const storedHash = getSettingHash('game_password');
+    if (!storedHash || !password) return false;
+    return bcrypt.compareSync(password, storedHash);
+  }
+
   /**
-   * Game password check — now a passthrough since EasyPanel basic auth
-   * protects the entire service at the Traefik level.
+   * Check game password
    */
   const checkPassword = (req, res, next) => {
+    const gamePwd = req.headers['x-game-password'];
+    if (!verifyGamePassword(gamePwd)) {
+      return res.status(401).json({ error: 'Game authentication required' });
+    }
     next();
   };
 
@@ -23,10 +37,15 @@ function createAuthMiddleware(db) {
    * Check admin password (requires game password first)
    */
   const checkAdminPassword = (req, res, next) => {
-    const adminPwd = req.headers['x-admin-password'];
-    const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
+    const gamePwd = req.headers['x-game-password'];
+    if (!verifyGamePassword(gamePwd)) {
+      return res.status(401).json({ error: 'Game authentication required' });
+    }
 
-    if (!storedHash || !bcrypt.compareSync(adminPwd || '', storedHash.value)) {
+    const adminPwd = req.headers['x-admin-password'];
+    const storedHash = getSettingHash('admin_password');
+
+    if (!storedHash || !bcrypt.compareSync(adminPwd || '', storedHash)) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     next();
@@ -34,7 +53,8 @@ function createAuthMiddleware(db) {
 
   return {
     checkPassword,
-    checkAdminPassword
+    checkAdminPassword,
+    verifyGamePassword
   };
 }
 

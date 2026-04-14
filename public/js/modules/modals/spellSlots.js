@@ -291,7 +291,7 @@ export async function addSpellSlotLevel() {
   let spellSlots = {};
   try { spellSlots = JSON.parse(char.spell_slots || '{}'); } catch (e) { spellSlots = {}; }
 
-  spellSlots[level] = { max: maxSlots, used: 0 };
+  spellSlots[level] = { max: maxSlots, current: maxSlots };
 
   try {
     const result = await api(`/api/characters/${spellSlotsModalCharId}/spell-slots`, 'POST', {

@@ -8,13 +8,21 @@ const { validate, validateBody, schemas } = require('../lib/validation');
 
 function createAuthRoutes(db, auth, rateLimiter) {
   const router = express.Router();
-  const { checkAdminPassword } = auth;
+  const { checkPassword, checkAdminPassword } = auth;
+
+  /**
+   * POST /api/auth
+   * Verify game password
+   */
+  router.post('/auth', validateBody(schemas.auth), checkPassword, (req, res) => {
+    res.json({ success: true });
+  });
 
   /**
    * POST /api/admin-auth
    * Verify admin password
    */
-  router.post('/admin-auth', validateBody(schemas.adminAuth), (req, res) => {
+  router.post('/admin-auth', validateBody(schemas.adminAuth), checkPassword, (req, res) => {
     const bcrypt = require('bcryptjs');
     const { adminPassword } = req.body;
     const sanitizedAdminPassword = validate.sanitizeString(adminPassword, 200);

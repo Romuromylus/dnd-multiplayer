@@ -46,9 +46,6 @@ const basicUser = process.env.BASIC_AUTH_USER;
 const basicPass = process.env.BASIC_AUTH_PASS;
 if (basicUser && basicPass) {
   app.use((req, res, next) => {
-    // Skip auth for socket.io polling
-    if (req.path.startsWith('/socket.io')) return next();
-
     const header = req.headers.authorization;
     if (header) {
       const [scheme, encoded] = header.split(' ');
@@ -66,7 +63,9 @@ if (basicUser && basicPass) {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(securityHeaders);
-const allowedOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [];
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
 app.use(corsMiddleware(allowedOrigins));
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/uploads', express.static(path.join(__dirname, '../data/uploads')));
@@ -74,8 +73,17 @@ app.use('/uploads', express.static(path.join(__dirname, '../data/uploads')));
 // ============================================
 // Auth
 // ============================================
-const { checkPassword, checkAdminPassword } = createAuthMiddleware(db);
-const auth = { checkPassword, checkAdminPassword };
+const { checkPassword, checkAdminPassword, verifyGamePassword } = createAuthMiddleware(db);
+const auth = { checkPassword, checkAdminPassword, verifyGamePassword };
+
+const SESSION_ROOM_PREFIX = 'session:';
+function getSessionRoom(sessionId) {
+  return `${SESSION_ROOM_PREFIX}${sessionId}`;
+}
+
+function emitToSession(sessionId, event, payload) {
+  io.to(getSessionRoom(sessionId)).emit(event, payload);
+}
 
 // ============================================
 // Helper: Get active API config (formatted for routes)
@@ -102,6 +110,7 @@ const turnDeps = {
   AI_RESPONSE_PREFIX: aiService.AI_RESPONSE_PREFIX,
   processingSessions,
   parseAcEffects, calculateTotalAC, updateCharacterAC,
+  emitToSession,
   applyAllTags
 };
 
@@ -135,6 +144,7 @@ function getOpenAIApiKey() {
 // ============================================
 const routes = initializeRoutes({
   db, io, auth, authLimiter: null, aiService,
+  emitToSession,
   processingSessions,
   getActiveApiConfig,
   processAITurn,
@@ -159,8 +169,29 @@ app.use(errorHandler);
 // ============================================
 // Socket.IO
 // ============================================
+io.use((socket, next) => {
+  const gamePwd = socket.handshake.auth?.gamePassword;
+  if (!gamePwd || !auth.verifyGamePassword(gamePwd)) {
+    return next(new Error('Game authentication required'));
+  }
+  next();
+});
+
 io.on('connection', (socket) => {
   logger.debug('Client connected', { socketId: socket.id });
+
+  socket.on('join_session', ({ sessionId } = {}) => {
+    if (!sessionId) return;
+    socket.join(getSessionRoom(sessionId));
+    logger.debug('Socket joined session room', { socketId: socket.id, sessionId });
+  });
+
+  socket.on('leave_session', ({ sessionId } = {}) => {
+    if (!sessionId) return;
+    socket.leave(getSessionRoom(sessionId));
+    logger.debug('Socket left session room', { socketId: socket.id, sessionId });
+  });
+
   socket.on('disconnect', () => {
     logger.debug('Client disconnected', { socketId: socket.id });
   });

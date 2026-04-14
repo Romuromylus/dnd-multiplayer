@@ -6,7 +6,7 @@ import { getState, setState } from './state.js';
 import { initSocket } from './socket.js';
 
 // Modules
-import { restoreSession, saveAppState, submitAdminLogin, closeAdminModal, promptAdminLogin } from './modules/auth.js';
+import { restoreSession, saveAppState, submitAdminLogin, closeAdminModal, promptAdminLogin, submitGameLogin, showGameModal } from './modules/auth.js';
 import {
   loadCharacters, renderCharactersList, updateCharacterSelect, updatePartyList,
   deleteCharacter, resetXP, resetLevel,
@@ -58,7 +58,7 @@ import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/
 // Expose functions to window for onclick handlers in HTML
 // ============================================
 
-// Auth (admin only — game auth handled by EasyPanel basic auth)
+// Auth
 window.submitAdminLogin = submitAdminLogin;
 window.closeAdminModal = closeAdminModal;
 
@@ -372,15 +372,42 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize app
 // ============================================
 
-(async function init() {
-  // Show app screen immediately (auth handled by EasyPanel basic auth)
-  document.getElementById('app-screen').classList.add('active');
+let appStarted = false;
 
+async function initializeAuthenticatedApp() {
   const restored = await restoreSession();
-  if (!restored) {
-    // First visit — initialize socket and load data
-    initSocket();
-    await loadInitialData();
+  const isGameAuthenticated = getState('isGameAuthenticated');
+
+  if (!restored && !isGameAuthenticated) {
+    return false;
+  }
+
+  if (!appStarted) {
+    appStarted = true;
+    document.getElementById('app-screen').classList.add('active');
+
+    if (!restored) {
+      initSocket();
+      await loadInitialData();
+    }
+  }
+
+  return true;
+}
+
+(async function wireGameLogin() {
+  window.submitGameLogin = async () => {
+    const ok = await submitGameLogin();
+    if (ok) {
+      await initializeAuthenticatedApp();
+    }
+  };
+})();
+
+(async function init() {
+  const started = await initializeAuthenticatedApp();
+  if (!started) {
+    showGameModal();
   }
 })();
 

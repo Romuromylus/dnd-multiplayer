@@ -1,6 +1,6 @@
 // ============================================
 // Auth Module
-// - Admin auth only (game auth handled by EasyPanel basic auth)
+// - Game and admin auth
 // ============================================
 
 import { getState, setState } from '../state.js';
@@ -14,12 +14,15 @@ import { scrollChatToBottom } from '../utils/dom.js';
 export function saveAppState() {
   const {
     currentSession, charCreationInProgress,
-    charCreationMessages
+    charCreationMessages, gamePassword,
+    isGameAuthenticated
   } = getState();
 
   const stateToSave = {
     currentSessionId: currentSession ? currentSession.id : null,
     currentTab: document.querySelector('.tab-btn.active')?.dataset.tab || 'game',
+    gamePassword,
+    isGameAuthenticated,
     charCreationInProgress,
     charCreationMessages,
     autoReplySessionId: document.getElementById('autoreply-session-select')?.value || '',
@@ -44,7 +47,26 @@ function loadAppState() {
 
 export async function restoreSession() {
   const savedState = loadAppState();
-  if (!savedState) return false;
+  if (!savedState || !savedState.isGameAuthenticated || !savedState.gamePassword) return false;
+
+  try {
+    const authCheck = await fetch('/api/auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Game-Password': savedState.gamePassword
+      },
+      body: JSON.stringify({ password: savedState.gamePassword })
+    });
+    if (!authCheck.ok) return false;
+  } catch (error) {
+    return false;
+  }
+
+  setState({
+    gamePassword: savedState.gamePassword,
+    isGameAuthenticated: true
+  });
 
   try {
     const { initSocket } = await import('../socket.js');
@@ -130,6 +152,7 @@ export function closeAdminModal() {
 
 export async function submitAdminLogin() {
   const pwd = document.getElementById('admin-password-input').value;
+  const gamePassword = getState('gamePassword');
   if (!pwd) {
     document.getElementById('admin-login-error').textContent = 'Please enter a password';
     return;
@@ -139,7 +162,8 @@ export async function submitAdminLogin() {
     const result = await fetch('/api/admin-auth', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-Game-Password': gamePassword || ''
       },
       body: JSON.stringify({ adminPassword: pwd })
     });
@@ -166,4 +190,48 @@ export function promptAdminLogin() {
     setState({ adminLoginResolve: resolve });
     showAdminModal();
   });
+}
+
+// ============================================
+// Game auth
+// ============================================
+
+export function showGameModal() {
+  document.getElementById('game-modal').classList.add('active');
+  document.getElementById('game-password-input').value = '';
+  document.getElementById('game-login-error').textContent = '';
+  document.getElementById('game-password-input').focus();
+}
+
+export async function submitGameLogin() {
+  const pwd = document.getElementById('game-password-input').value;
+  if (!pwd) {
+    document.getElementById('game-login-error').textContent = 'Please enter a password';
+    return;
+  }
+
+  try {
+    const result = await fetch('/api/auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Game-Password': pwd
+      },
+      body: JSON.stringify({ password: pwd })
+    });
+
+    if (result.ok) {
+      setState({ gamePassword: pwd, isGameAuthenticated: true });
+      document.getElementById('game-modal').classList.remove('active');
+      saveAppState();
+      return true;
+    }
+
+    const data = await result.json().catch(() => ({}));
+    document.getElementById('game-login-error').textContent = data.error || 'Invalid game password';
+    return false;
+  } catch (error) {
+    document.getElementById('game-login-error').textContent = 'Failed to authenticate';
+    return false;
+  }
 }

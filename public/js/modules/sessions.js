@@ -220,6 +220,12 @@ export async function createSession() {
 
 export async function loadSession(id) {
   try {
+    const previousSession = getState('currentSession');
+    const socket = getState('socket');
+    if (socket && previousSession && previousSession.id !== id) {
+      socket.emit('leave_session', { sessionId: previousSession.id });
+    }
+
     const data = await api(`/api/sessions/${id}`);
     setState({
       currentSession: data.session,
@@ -252,6 +258,11 @@ export async function loadSession(id) {
 
     scrollStoryToBottom();
     updatePendingActions(data.pendingActions);
+
+    if (socket) {
+      socket.emit('join_session', { sessionId: id });
+    }
+
     loadSessions();
     saveAppState();
     closeGameDrawer();

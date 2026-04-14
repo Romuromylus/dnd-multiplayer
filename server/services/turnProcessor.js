@@ -145,10 +145,14 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     db, io, aiService, tagParser,
     getActiveApiConfig, DEFAULT_SYSTEM_PROMPT, AI_RESPONSE_PREFIX,
     processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
+    emitToSession,
     applyAllTags
   } = deps;
   const { extractAIMessage } = aiService;
   const { findCharacterByName } = tagParser;
+  const sendToSession = typeof emitToSession === 'function'
+    ? emitToSession
+    : (id, event, payload) => io.emit(event, payload);
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
   const apiConfig = getActiveApiConfig();
@@ -455,7 +459,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
   // Emit update to all clients
-  io.emit('turn_processed', {
+  sendToSession(sessionId, 'turn_processed', {
     sessionId,
     response: cleanedResponse,
     turn: session.current_turn + 1,
@@ -482,10 +486,14 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     db, io, aiService, tagParser,
     getActiveApiConfig, DEFAULT_SYSTEM_PROMPT, AI_RESPONSE_PREFIX,
     processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
+    emitToSession,
     applyAllTags
   } = deps;
   const { extractAIMessage, callAIStream, detectProvider } = aiService;
   const { findCharacterByName } = tagParser;
+  const sendToSession = typeof emitToSession === 'function'
+    ? emitToSession
+    : (id, event, payload) => io.emit(event, payload);
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
   const apiConfig = getActiveApiConfig();
@@ -641,7 +649,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     for await (const chunk of callAIStream(streamConfig, messages, { maxTokens: 64000 })) {
       aiResponse += chunk;
       // Emit each chunk to clients for real-time display
-      io.emit('turn_chunk', { sessionId, text: chunk });
+      sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
     }
   } catch (streamError) {
     console.error('Stream error:', streamError);
@@ -670,7 +678,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   let parsedPOVs = {};
   if (characters.length > 0) {
     console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
-    io.emit('turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
+    sendToSession(sessionId, 'turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
 
     // Build shared party roster so the POV converter knows all character names/identities
     const partyRoster = characters.map(c => {
@@ -811,7 +819,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
   // Emit final turn_processed to all clients (replaces streaming content with formatted version)
-  io.emit('turn_processed', {
+  sendToSession(sessionId, 'turn_processed', {
     sessionId,
     response: cleanedResponse,
     turn: session.current_turn + 1,

@@ -3,6 +3,8 @@
 // ============================================
 
 const state = {
+  gamePassword: '',
+  isGameAuthenticated: false,
   adminPassword: '',
   isAdminAuthenticated: false,
   currentSession: null,

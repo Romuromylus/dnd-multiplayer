@@ -660,6 +660,22 @@
     </div>
   </div>
 
+  <!-- Game Login Modal -->
+  <div id="game-modal" class="modal active" role="dialog" aria-modal="true" aria-label="Game login">
+    <div class="modal-content admin-login-modal">
+      <h2>Enter Game Password</h2>
+      <p>Use the shared game password to join this campaign.</p>
+      <div class="form-group">
+        <label for="game-password-input">Game Password</label>
+        <input type="password" id="game-password-input" placeholder="Game Password">
+      </div>
+      <p id="game-login-error" class="error"></p>
+      <div class="modal-buttons">
+        <button onclick="submitGameLogin()" class="btn-primary">Enter</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Admin Login Modal -->
   <div id="admin-modal" class="modal" role="dialog" aria-modal="true" aria-label="Admin login">
     <div class="modal-content admin-login-modal">

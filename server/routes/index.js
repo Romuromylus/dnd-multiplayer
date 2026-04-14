@@ -17,7 +17,7 @@ const { createDndDataRoutes } = require('./dndData');
  */
 function initializeRoutes(deps) {
   const {
-    db, io, auth, authLimiter, aiService,
+    db, io, auth, authLimiter, aiService, emitToSession,
     processingSessions, getActiveApiConfig, processAITurn,
     DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
     parseAcEffects, calculateTotalAC, updateCharacterAC,
@@ -29,7 +29,7 @@ function initializeRoutes(deps) {
     characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig }),
     apiConfig: createApiConfigRoutes(db, auth),
     sessions: createSessionRoutes({
-      db, io, auth, aiService,
+      db, io, auth, aiService, emitToSession,
       processingSessions,
       getActiveApiConfig,
       processAITurn,

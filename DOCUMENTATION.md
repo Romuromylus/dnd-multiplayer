@@ -796,10 +796,22 @@ The Dockerfile:
 - **Admin Password:** Separate password for settings access
 - Both passwords configurable via environment variables
 
+### Access Control Layers
+- In-app auth is enforced with `X-Game-Password` for API and socket handshake
+- Admin-only endpoints additionally require `X-Admin-Password`
+- Optional EasyPanel/Traefik basic auth can be used as an outer layer
+
+### SSRF Protection for AI Endpoints
+- API config/test endpoints validate target URLs before outbound requests.
+- By default, blocked targets include localhost, private ranges, link-local, loopback, and hosts resolving to private IPs.
+- HTTPS is required by default.
+- Escape hatches (use with caution):
+  - `ALLOW_PRIVATE_AI_ENDPOINTS=true`
+  - `ALLOW_INSECURE_AI_ENDPOINTS=true`
+
 ### Rate Limiting
-- **Auth endpoints:** 10 attempts per 15 minutes (prevents brute force)
-- **General API:** 100 requests per minute
-- Uses `express-rate-limit` package
+- Not currently enabled in server code
+- If needed, add reverse-proxy limits (EasyPanel/Traefik) or reintroduce app-level middleware
 
 ### HTML Sanitization
 - AI narration may contain HTML (for diegetic objects like signs, documents)

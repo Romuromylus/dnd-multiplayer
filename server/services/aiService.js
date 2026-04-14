@@ -4,6 +4,8 @@
  */
 
 const logger = require('../lib/logger');
+const dns = require('dns').promises;
+const net = require('net');
 
 /**
  * Response prefix for session AI - helps with immersion, stripped from final output
@@ -109,13 +111,14 @@ async function callAI(config, messages, options = {}) {
     throw new Error('Invalid API configuration');
   }
 
-  const provider = detectProvider(config.endpoint);
+  const safeEndpoint = await validateEndpointSafety(config.endpoint);
+  const provider = detectProvider(safeEndpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
-    response = await fetch(config.endpoint, {
+    response = await fetch(safeEndpoint, {
       method: 'POST',
       headers: buildHeaders(config, provider),
       body: JSON.stringify(buildRequestBody(config, messages, { maxTokens, temperature, stream: false }, provider)),
@@ -148,13 +151,14 @@ async function* callAIStream(config, messages, options = {}) {
     throw new Error('Invalid API configuration');
   }
 
-  const provider = detectProvider(config.endpoint);
+  const safeEndpoint = await validateEndpointSafety(config.endpoint);
+  const provider = detectProvider(safeEndpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
-    response = await fetch(config.endpoint, {
+    response = await fetch(safeEndpoint, {
       method: 'POST',
       headers: buildHeaders(config, provider),
       body: JSON.stringify(buildRequestBody(config, messages, { maxTokens, temperature, stream: true }, provider)),
@@ -281,6 +285,96 @@ function extractAIMessage(data) {
 function estimateTokens(text) {
   if (!text) return 0;
   return Math.ceil(text.length / 4);
+}
+
+function isPrivateOrLocalIp(ip) {
+  if (!ip || net.isIP(ip) === 0) return true;
+
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    const a = parts[0];
+    const b = parts[1];
+
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+
+  const normalized = ip.toLowerCase();
+  if (normalized === '::1' || normalized === '::') return true;
+  if (normalized.startsWith('fe80:')) return true;
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+  if (normalized.startsWith('ff')) return true;
+  return false;
+}
+
+function assertProtocolAllowed(urlObj) {
+  const protocol = (urlObj.protocol || '').toLowerCase();
+  const allowInsecure = process.env.ALLOW_INSECURE_AI_ENDPOINTS === 'true';
+  if (protocol === 'https:') return;
+  if (protocol === 'http:' && allowInsecure) return;
+
+  if (protocol === 'http:') {
+    throw new Error('Insecure endpoint protocol is blocked. Use HTTPS or set ALLOW_INSECURE_AI_ENDPOINTS=true.');
+  }
+  throw new Error('Only HTTP(S) endpoints are allowed.');
+}
+
+async function validateEndpointSafety(endpoint) {
+  if (!endpoint || typeof endpoint !== 'string') {
+    throw new Error('Endpoint is required');
+  }
+
+  let urlObj;
+  try {
+    urlObj = new URL(endpoint);
+  } catch (error) {
+    throw new Error('Invalid endpoint URL');
+  }
+
+  assertProtocolAllowed(urlObj);
+
+  if (urlObj.username || urlObj.password) {
+    throw new Error('Endpoint URL must not include embedded credentials');
+  }
+
+  const host = (urlObj.hostname || '').toLowerCase();
+  const allowPrivate = process.env.ALLOW_PRIVATE_AI_ENDPOINTS === 'true';
+  if (!allowPrivate && (host === 'localhost' || host.endsWith('.localhost'))) {
+    throw new Error('Localhost endpoints are blocked by SSRF protection');
+  }
+
+  const parsedIp = net.isIP(host);
+  if (!allowPrivate && parsedIp && isPrivateOrLocalIp(host)) {
+    throw new Error('Private or local IP endpoints are blocked by SSRF protection');
+  }
+
+  if (!allowPrivate && !parsedIp) {
+    let records;
+    try {
+      records = await dns.lookup(host, { all: true, verbatim: true });
+    } catch (error) {
+      throw new Error('Could not resolve endpoint host');
+    }
+
+    if (!records || records.length === 0) {
+      throw new Error('Endpoint host did not resolve to any IP address');
+    }
+
+    for (const record of records) {
+      if (isPrivateOrLocalIp(record.address)) {
+        throw new Error('Endpoint resolves to a private/local IP and is blocked by SSRF protection');
+      }
+    }
+  }
+
+  return urlObj.toString();
 }
 
 /**
@@ -456,6 +550,7 @@ module.exports = {
   callAIStream,
   extractAIMessage,
   estimateTokens,
+  validateEndpointSafety,
   testConnection,
   getOpenAIApiKey,
   detectProvider,

@@ -21,7 +21,7 @@ const { getCached, setCache, invalidateCache } = require('../lib/cache');
 function createCharacterRoutes(deps) {
   const { db, io, auth, aiService, getActiveApiConfig } = deps;
   const router = express.Router();
-  const { checkPassword } = auth;
+  const { checkPassword, checkAdminPassword } = auth;
   const { upload } = require('../middleware/upload');
   const fs = require('fs');
   const path = require('path');
@@ -32,6 +32,24 @@ function createCharacterRoutes(deps) {
   const STATIC_CLASSES = JSON.parse(
     fs.readFileSync(path.join(__dirname, '../data/srd/classes.json'), 'utf-8')
   );
+
+  function normalizeSpellSlots(spellSlots) {
+    const normalized = {};
+    if (!spellSlots || typeof spellSlots !== 'object') return normalized;
+
+    for (const [level, slot] of Object.entries(spellSlots)) {
+      if (!slot || typeof slot !== 'object') continue;
+      const max = Math.max(0, Number(slot.max || 0));
+      const current = Number.isFinite(slot.current)
+        ? Number(slot.current)
+        : Math.max(0, max - Number(slot.used || 0));
+      normalized[level] = {
+        max,
+        current: Math.max(0, Math.min(max, current))
+      };
+    }
+    return normalized;
+  }
 
   const CLASS_FEATURES_L1 = {
     'Barbarian': 'Rage (2/long rest, +2 damage), Unarmored Defense (AC = 10 + DEX + CON)',
@@ -268,7 +286,7 @@ function createCharacterRoutes(deps) {
    * DELETE /api/characters/:id
    * Delete a character
    */
-  router.delete('/:id', checkPassword, (req, res) => {
+  router.delete('/:id', checkPassword, checkAdminPassword, (req, res) => {
     db.prepare('DELETE FROM characters WHERE id = ?').run(req.params.id);
     invalidateCache('characters:');
     io.emit('character_deleted', req.params.id);
@@ -418,6 +436,7 @@ function createCharacterRoutes(deps) {
     } catch (e) {
       spellSlots = {};
     }
+    spellSlots = normalizeSpellSlots(spellSlots);
 
     if (action === 'use' && level && spellSlots[level]) {
       spellSlots[level].current = Math.max(0, spellSlots[level].current - 1);
@@ -430,7 +449,7 @@ function createCharacterRoutes(deps) {
       // Restore inspiration points on long rest
       db.prepare('UPDATE characters SET inspiration_points = 4 WHERE id = ?').run(req.params.id);
     } else if (action === 'set' && slots) {
-      spellSlots = slots;
+      spellSlots = normalizeSpellSlots(slots);
     }
 
     db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), req.params.id);
@@ -490,7 +509,7 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/quick-update
    * Quick update character fields (direct, no AI)
    */
-  router.post('/:id/quick-update', checkPassword, (req, res) => {
+  router.post('/:id/quick-update', checkPassword, checkAdminPassword, (req, res) => {
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     if (!character) {
       return res.status(404).json({ error: 'Character not found' });
@@ -581,7 +600,7 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/reset-level
    * Reset character level to 1
    */
-  router.post('/:id/reset-level', checkPassword, async (req, res) => {
+  router.post('/:id/reset-level', checkPassword, checkAdminPassword, async (req, res) => {
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
 
     if (!character) {
