@@ -216,6 +216,9 @@ export async function loadCharacters() {
 
 export function renderCharactersList() {
   const characters = getState('characters');
+  const currentUser = getState('currentUser');
+  const users = getState('users') || [];
+  const isAdmin = !!(currentUser && currentUser.is_admin);
   const grid = document.getElementById('characters-grid');
   if (!grid) return;
 
@@ -261,9 +264,24 @@ export function renderCharactersList() {
       `;
     };
 
+    const ownerSelector = isAdmin ? `
+        <div class="owner-selector" onclick="event.stopPropagation();" style="font-size:0.8em;opacity:0.85;margin-top:0.25em;">
+          <label>Owner:
+            <select onchange="assignCharacterOwner('${c.id}', this.value)">
+              <option value="" ${!c.user_id ? 'selected' : ''}>— unassigned —</option>
+              ${users.map(u => `<option value="${u.id}" ${c.user_id === u.id ? 'selected' : ''}>${escapeHtml(u.username)}${u.is_admin ? ' (admin)' : ''}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+    ` : '';
+
+    const deleteBtn = isAdmin
+      ? `<button class="delete-btn" onclick="event.stopPropagation(); deleteCharacter('${c.id}')">X</button>`
+      : '';
+
     return `
     <div class="character-card ${canLevel ? 'ready-to-level' : ''}" data-id="${c.id}">
-      <button class="delete-btn" onclick="event.stopPropagation(); deleteCharacter('${c.id}')">X</button>
+      ${deleteBtn}
 
       <div class="card-header">
         <div class="card-header-main">
@@ -271,6 +289,7 @@ export function renderCharactersList() {
           <div>
             <h3>${escapeHtml(c.character_name)}</h3>
             <div class="player">Played by ${escapeHtml(c.player_name)}</div>
+            ${ownerSelector}
           </div>
         </div>
         <div class="race-class">${escapeHtml(c.race)} ${escapeHtml(classDisplay)}</div>
@@ -640,10 +659,7 @@ export function initAvatarUpload() {
     try {
       const res = await fetch(`/api/characters/${avatarTargetCharId}/image`, {
         method: 'POST',
-        headers: {
-          'X-Game-Password': getState('gamePassword') || '',
-          'X-Admin-Password': getState('adminPassword') || ''
-        },
+        credentials: 'same-origin',
         body: formData
       });
       if (!res.ok) throw new Error('Upload failed');

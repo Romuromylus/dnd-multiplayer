@@ -51,9 +51,14 @@
         <button class="tab-btn" data-tab="settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> Settings</button>
       </div>
       <div class="top-bar-right">
+        <span class="current-user-label" id="current-user-label" style="font-size:0.85em;opacity:0.75;margin-right:0.5em;"></span>
         <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle">
           <span class="theme-icon" id="theme-icon">&#127769;</span>
           <span id="theme-label" class="sr-only">Dark</span>
+        </button>
+        <button class="theme-toggle" onclick="logout()" id="logout-btn" title="Sign out" style="display:none;">
+          <span aria-hidden="true">&#x21AA;</span>
+          <span class="sr-only">Sign out</span>
         </button>
       </div>
     </header>
@@ -181,6 +186,9 @@
           <div class="action-bar-bottom">
             <textarea id="action-text" placeholder="What do you do?" rows="2" aria-label="Action description"></textarea>
             <button onclick="submitAction()" id="submit-action-btn" class="btn-submit">Submit</button>
+          </div>
+          <div id="view-only-banner" class="view-only-banner" style="display:none;font-size:0.85em;opacity:0.75;padding:0.3em 0.6em;">
+            You can switch to this character to read their POV, but you can only act as characters you own.
           </div>
         </div>
       </main>
@@ -401,6 +409,32 @@
     <!-- SETTINGS TAB -->
     <div id="settings-tab" class="tab-content">
       <div class="settings-container">
+        <h2>Users</h2>
+        <p class="settings-note">Create accounts for each player. Players only see characters and sessions they have been assigned to.</p>
+
+        <div class="users-list" id="users-list">
+          <!-- Users populated by modules/adminUsers.js -->
+        </div>
+
+        <div class="add-user-form">
+          <h3>Create User</h3>
+          <div class="form-group">
+            <label for="new-user-username">Username</label>
+            <input type="text" id="new-user-username" placeholder="player1" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="new-user-password">Password (min 6 chars)</label>
+            <input type="password" id="new-user-password" placeholder="••••••" autocomplete="new-password">
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="new-user-admin"> Admin
+            </label>
+          </div>
+          <button onclick="createUserSubmit()" class="btn-primary">Create User</button>
+          <p id="new-user-status"></p>
+        </div>
+
         <h2>API Configurations</h2>
         <p class="settings-note">Manage multiple API providers (OpenAI, DeepSeek, Local LLMs, etc.)</p>
 
@@ -660,35 +694,22 @@
     </div>
   </div>
 
-  <!-- Game Login Modal -->
-  <div id="game-modal" class="modal active" role="dialog" aria-modal="true" aria-label="Game login">
+  <!-- Login Modal -->
+  <div id="login-modal" class="modal active" role="dialog" aria-modal="true" aria-label="Sign in">
     <div class="modal-content admin-login-modal">
-      <h2>Enter Game Password</h2>
-      <p>Use the shared game password to join this campaign.</p>
+      <h2>Sign In</h2>
+      <p>Enter the username and password your admin gave you.</p>
       <div class="form-group">
-        <label for="game-password-input">Game Password</label>
-        <input type="password" id="game-password-input" placeholder="Game Password">
+        <label for="login-username-input">Username</label>
+        <input type="text" id="login-username-input" placeholder="Username" autocomplete="username">
       </div>
-      <p id="game-login-error" class="error"></p>
-      <div class="modal-buttons">
-        <button onclick="submitGameLogin()" class="btn-primary">Enter</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Admin Login Modal -->
-  <div id="admin-modal" class="modal" role="dialog" aria-modal="true" aria-label="Admin login">
-    <div class="modal-content admin-login-modal">
-      <h2>Admin Access Required</h2>
-      <p>Enter admin password to access settings</p>
       <div class="form-group">
-        <label for="admin-password-input">Admin Password</label>
-        <input type="password" id="admin-password-input" placeholder="Admin Password">
+        <label for="login-password-input">Password</label>
+        <input type="password" id="login-password-input" placeholder="Password" autocomplete="current-password">
       </div>
-      <p id="admin-login-error" class="error"></p>
+      <p id="login-error" class="error"></p>
       <div class="modal-buttons">
-        <button onclick="submitAdminLogin()" class="btn-primary">Login</button>
-        <button onclick="closeAdminModal()" class="btn-secondary">Cancel</button>
+        <button onclick="submitLogin()" class="btn-primary">Sign In</button>
       </div>
     </div>
   </div>

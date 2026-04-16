@@ -7,10 +7,10 @@ const express = require('express');
 
 function createDndDataRoutes(db, auth) {
   const router = express.Router();
-  const { checkPassword } = auth;
+  const { requireUser } = auth;
   const dndData = require('../services/dndDataService');
 
-  router.get('/races', checkPassword, async (req, res, next) => {
+  router.get('/races', requireUser, async (req, res, next) => {
     try {
       res.json(await dndData.getRaces(db));
     } catch (e) {
@@ -18,7 +18,7 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
-  router.get('/classes', checkPassword, async (req, res, next) => {
+  router.get('/classes', requireUser, async (req, res, next) => {
     try {
       res.json(await dndData.getClasses(db));
     } catch (e) {
@@ -26,7 +26,7 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
-  router.get('/classes/:classIndex/spells', checkPassword, async (req, res, next) => {
+  router.get('/classes/:classIndex/spells', requireUser, async (req, res, next) => {
     try {
       const level = parseInt(req.query.level) || 0;
       res.json(await dndData.getSpellsByClass(db, req.params.classIndex, level));
@@ -35,7 +35,7 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
-  router.get('/spells/:spellIndex', checkPassword, async (req, res, next) => {
+  router.get('/spells/:spellIndex', requireUser, async (req, res, next) => {
     try {
       res.json(await dndData.getSpellDetail(db, req.params.spellIndex));
     } catch (e) {
@@ -43,7 +43,7 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
-  router.get('/equipment/:category', checkPassword, async (req, res, next) => {
+  router.get('/equipment/:category', requireUser, async (req, res, next) => {
     try {
       res.json(await dndData.getEquipmentByCategory(db, req.params.category));
     } catch (e) {
@@ -51,7 +51,7 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
-  router.get('/skills', checkPassword, async (req, res, next) => {
+  router.get('/skills', requireUser, async (req, res, next) => {
     try {
       res.json(await dndData.getSkills(db));
     } catch (e) {
@@ -59,7 +59,7 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
-  router.get('/backgrounds', checkPassword, async (req, res, next) => {
+  router.get('/backgrounds', requireUser, async (req, res, next) => {
     try {
       res.json(await dndData.getBackgrounds(db));
     } catch (e) {

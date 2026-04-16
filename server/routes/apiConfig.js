@@ -10,18 +10,18 @@ const { testConnection, validateEndpointSafety } = require('../services/aiServic
 /**
  * Create API config router with dependencies
  * @param {Object} db - Database instance
- * @param {Object} auth - Auth middleware {checkPassword, checkAdminPassword}
+ * @param {Object} auth - Auth middleware {requireUser, requireAdmin}
  * @returns {express.Router} Configured router
  */
 function createApiConfigRoutes(db, auth) {
   const router = express.Router();
-  const { checkPassword, checkAdminPassword } = auth;
+  const { requireAdmin } = auth;
 
   /**
    * GET /api/api-configs
    * List all API configurations (keys masked)
    */
-  router.get('/', checkAdminPassword, (req, res) => {
+  router.get('/', requireAdmin, (req, res) => {
     const configs = db.prepare('SELECT * FROM api_configs ORDER BY created_at DESC').all();
     // Mask API keys for security
     const maskedConfigs = configs.map(config => ({
@@ -35,7 +35,7 @@ function createApiConfigRoutes(db, auth) {
    * POST /api/api-configs
    * Create new API configuration
    */
-  router.post('/', checkAdminPassword, async (req, res) => {
+  router.post('/', requireAdmin, async (req, res) => {
     const { name, endpoint, api_key, model, is_active } = req.body;
 
     if (!name || !endpoint || !api_key || !model) {
@@ -67,7 +67,7 @@ function createApiConfigRoutes(db, auth) {
    * PUT /api/api-configs/:id
    * Update API configuration
    */
-  router.put('/:id', checkAdminPassword, async (req, res) => {
+  router.put('/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
     const { name, endpoint, api_key, model } = req.body;
 
@@ -103,7 +103,7 @@ function createApiConfigRoutes(db, auth) {
    * DELETE /api/api-configs/:id
    * Delete API configuration
    */
-  router.delete('/:id', checkAdminPassword, (req, res) => {
+  router.delete('/:id', requireAdmin, (req, res) => {
     const { id } = req.params;
 
     const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
@@ -124,7 +124,7 @@ function createApiConfigRoutes(db, auth) {
    * POST /api/api-configs/:id/activate
    * Activate specific API configuration
    */
-  router.post('/:id/activate', checkAdminPassword, (req, res) => {
+  router.post('/:id/activate', requireAdmin, (req, res) => {
     const { id } = req.params;
 
     const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
@@ -142,7 +142,7 @@ function createApiConfigRoutes(db, auth) {
    * POST /api/test-connection
    * Test API connection with provided credentials
    */
-  router.post('/test-connection', checkAdminPassword, async (req, res) => {
+  router.post('/test-connection', requireAdmin, async (req, res) => {
     const { api_endpoint, api_key, api_model } = req.body;
 
     if (!api_endpoint || !api_key || !api_model) {
@@ -171,7 +171,7 @@ function createApiConfigRoutes(db, auth) {
    * POST /api/test-connection/:id
    * Test API connection by config ID
    */
-  router.post('/test-connection/:id', checkAdminPassword, async (req, res) => {
+  router.post('/test-connection/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     const config = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);

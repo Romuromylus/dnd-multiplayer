@@ -6,7 +6,8 @@ import { getState, setState } from './state.js';
 import { initSocket } from './socket.js';
 
 // Modules
-import { restoreSession, saveAppState, submitAdminLogin, closeAdminModal, promptAdminLogin, submitGameLogin, showGameModal } from './modules/auth.js';
+import { restoreSession, saveAppState, submitLogin, showLoginModal, logout } from './modules/auth.js';
+import { loadUsers, createUserSubmit, resetUserPassword, toggleUserAdmin, deleteUser, assignCharacterOwner } from './modules/adminUsers.js';
 import {
   loadCharacters, renderCharactersList, updateCharacterSelect, updatePartyList,
   deleteCharacter, resetXP, resetLevel,
@@ -59,8 +60,15 @@ import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/
 // ============================================
 
 // Auth
-window.submitAdminLogin = submitAdminLogin;
-window.closeAdminModal = closeAdminModal;
+window.submitLogin = submitLogin;
+window.logout = logout;
+
+// Admin — users
+window.createUserSubmit = createUserSubmit;
+window.resetUserPassword = resetUserPassword;
+window.toggleUserAdmin = toggleUserAdmin;
+window.deleteUser = deleteUser;
+window.assignCharacterOwner = assignCharacterOwner;
 
 // Theme
 window.toggleTheme = toggleTheme;
@@ -241,6 +249,8 @@ document.addEventListener('DOMContentLoaded', () => {
     reRenderStory();
     // Restore any persisted dice roll for this character
     restoreDiceState();
+    // Re-evaluate view-only gating for the newly selected character
+    updateActionFormState();
   });
 
   // Shared tab switching function
@@ -248,10 +258,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentTab = document.querySelector('.tab-btn.active')?.dataset.tab
                     || document.querySelector('.bottom-nav-btn.active')?.dataset.tab;
 
-    // Require admin password for settings tab
-    if (targetTab === 'settings' && !getState('isAdminAuthenticated')) {
-      const authenticated = await promptAdminLogin();
-      if (!authenticated) return;
+    // Settings tab is admin-only
+    if (targetTab === 'settings') {
+      const user = getState('currentUser');
+      if (!user || !user.is_admin) {
+        showNotification('Admin access required');
+        return;
+      }
     }
 
     // Save scroll position when leaving game tab
@@ -289,6 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load settings when tab is accessed
     if (targetTab === 'settings') {
       loadSettings();
+      loadUsers();
     }
 
     saveAppState();
@@ -312,13 +326,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const drawerOverlay = document.getElementById('drawer-overlay');
   if (drawerOverlay) drawerOverlay.addEventListener('click', closeGameDrawer);
 
-  // Enter key on admin password input
-  const adminInput = document.getElementById('admin-password-input');
-  if (adminInput) {
-    adminInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') submitAdminLogin();
-    });
-  }
+  // Enter key on login inputs
+  ['login-username-input', 'login-password-input'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') submitLogin();
+      });
+    }
+  });
 
   // Shift+Enter to send in char chat
   const charChatInput = document.getElementById('char-chat-input');
@@ -374,15 +390,27 @@ let builderInitialized = false;
 
 async function initializeAuthenticatedApp() {
   const restored = await restoreSession();
-  const isGameAuthenticated = getState('isGameAuthenticated');
+  const user = getState('currentUser');
 
-  if (!restored && !isGameAuthenticated) {
+  if (!user) {
     return false;
   }
 
   if (!appStarted) {
     appStarted = true;
     document.getElementById('app-screen').classList.add('active');
+    document.getElementById('login-modal').classList.remove('active');
+
+    // Show current user + logout button
+    const label = document.getElementById('current-user-label');
+    if (label) label.textContent = `${user.username}${user.is_admin ? ' (admin)' : ''}`;
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) logoutBtn.style.display = '';
+
+    // Hide settings tab button for non-admins
+    if (!user.is_admin) {
+      document.querySelectorAll('[data-tab="settings"]').forEach(el => el.style.display = 'none');
+    }
 
     if (!builderInitialized) {
       initCharacterBuilder();
@@ -393,24 +421,30 @@ async function initializeAuthenticatedApp() {
       initSocket();
       await loadInitialData();
     }
+
+    // Admins: preload the user list so character-card owner dropdowns
+    // are populated even if the admin never opens the Settings tab.
+    if (user.is_admin) {
+      loadUsers().catch(e => console.warn('loadUsers failed:', e));
+    }
   }
 
   return true;
 }
 
-(async function wireGameLogin() {
-  window.submitGameLogin = async () => {
-    const ok = await submitGameLogin();
-    if (ok) {
-      await initializeAuthenticatedApp();
-    }
-  };
-})();
+window.submitLogin = async () => {
+  const ok = await submitLogin();
+  if (ok) {
+    await initializeAuthenticatedApp();
+  }
+};
 
 (async function init() {
   const started = await initializeAuthenticatedApp();
   if (!started) {
-    showGameModal();
+    document.getElementById('login-modal').classList.add('active');
+    const usernameInput = document.getElementById('login-username-input');
+    if (usernameInput) usernameInput.focus();
   }
 })();
 

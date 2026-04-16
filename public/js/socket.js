@@ -57,9 +57,6 @@ export function initSocket() {
   }
 
   const socket = io({
-    auth: {
-      gamePassword: getState('gamePassword')
-    },
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 1000,
@@ -126,8 +123,8 @@ export function initSocket() {
   socket.on('connect_error', (error) => {
     console.error('Connection error:', error);
     if (error?.message && error.message.includes('authentication')) {
-      setState({ isGameAuthenticated: false, gamePassword: '', isAdminAuthenticated: false, adminPassword: '' });
-      showConnectionStatus('Game authentication failed. Refresh and log in again.', 'error');
+      setState({ currentUser: null });
+      showConnectionStatus('Authentication failed. Refresh and sign in again.', 'error');
       return;
     }
     showConnectionStatus('Connection error - Retrying...', 'warning');

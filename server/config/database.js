@@ -20,6 +20,9 @@ if (!fs.existsSync(dbDir)) {
 // Database setup
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
+// Enforce FK constraints (required per-connection in SQLite). The CASCADE on
+// auth_sessions.user_id is a no-op without this.
+db.pragma('foreign_keys = ON');
 
 /**
  * Initialize all database tables
@@ -119,6 +122,22 @@ function initializeTables() {
       data TEXT NOT NULL,
       fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      is_admin INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   // Create indexes for better performance
@@ -133,6 +152,9 @@ function initializeTables() {
       CREATE INDEX IF NOT EXISTS idx_characters_created ON characters(created_at);
       CREATE INDEX IF NOT EXISTS idx_game_sessions_created ON game_sessions(created_at);
       CREATE INDEX IF NOT EXISTS idx_snapshots_session ON game_snapshots(session_id);
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_characters_user ON characters(user_id);
     `);
   } catch (e) {
     // Indexes may already exist
@@ -163,6 +185,7 @@ function runMigrations() {
     { col: 'initiative_bonus', sql: "ALTER TABLE characters ADD COLUMN initiative_bonus INTEGER DEFAULT 0" },
     { col: 'image_url', sql: "ALTER TABLE characters ADD COLUMN image_url TEXT DEFAULT ''" },
     { col: 'inspiration_points', sql: 'ALTER TABLE characters ADD COLUMN inspiration_points INTEGER DEFAULT 4' },
+    { col: 'user_id', sql: 'ALTER TABLE characters ADD COLUMN user_id TEXT' },
   ];
 
   for (const { col, sql } of migrations) {
@@ -306,51 +329,89 @@ function seedApiConfig() {
 }
 
 /**
- * Initialize passwords from environment or generate random ones
+ * Bootstrap admin user from env vars (ADMIN_USERNAME + ADMIN_PASSWORD).
+ * - If both env vars set: upsert the admin user (re-hash password on every boot
+ *   so rotation is just change env + redeploy).
+ * - If missing and no admin exists yet: create an `admin` user with a generated
+ *   password and log it once to console.
  */
-function initializePasswords() {
-  const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-  const upsertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
-
-  const defaultPassword = process.env.GAME_PASSWORD;
-  const adminPassword = process.env.ADMIN_PASSWORD;
+function bootstrapAdminUser() {
+  const rawUsername = process.env.ADMIN_USERNAME;
+  const rawPassword = process.env.ADMIN_PASSWORD;
+  // Treat unset, empty, or whitespace-only envs as "not provided" so a misconfigured
+  // ADMIN_USERNAME="" doesn't fall through to the generate-random fallback on every boot.
+  const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
+  const password = typeof rawPassword === 'string' ? rawPassword : '';
 
   function generateSecurePassword() {
     return require('crypto').randomBytes(16).toString('hex');
   }
 
-  const existingGamePassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
-  const existingAdminPassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
-
-  if (defaultPassword) {
-    upsertSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
-  } else if (!existingGamePassword) {
-    const generatedGamePassword = generateSecurePassword();
-    upsertSetting.run('game_password', bcrypt.hashSync(generatedGamePassword, 10));
-    console.log('\n' + '='.repeat(60));
-    console.log('SECURITY: No GAME_PASSWORD env var set.');
-    console.log('Generated random game password: ' + generatedGamePassword);
-    console.log('Set GAME_PASSWORD env var to use a custom password.');
-    console.log('='.repeat(60) + '\n');
+  if (username && password) {
+    const existing = db.prepare('SELECT id, is_admin, password_hash FROM users WHERE username = ?').get(username);
+    if (existing) {
+      // Only accept env credentials for a user that is already flagged as admin.
+      // Refuse to silently elevate an existing non-admin via ADMIN_USERNAME collision —
+      // that would let anyone with deploy access promote any player by renaming the env.
+      if (!existing.is_admin) {
+        logger.error(
+          `bootstrapAdminUser: refusing to elevate existing non-admin user "${username}". ` +
+          `Pick a different ADMIN_USERNAME, or promote the user via the Users admin panel.`
+        );
+        return;
+      }
+      // Only rewrite + invalidate sessions when the env password actually changed.
+      // (bcrypt is salted, so we can't just compare hashes — use compare against the existing hash.)
+      if (!bcrypt.compareSync(password, existing.password_hash)) {
+        const hash = bcrypt.hashSync(password, 10);
+        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, existing.id);
+        // Rotate sessions so a revoked admin password can't be used via a lingering cookie.
+        db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(existing.id);
+        logger.info(`Admin user "${username}" password rotated; existing sessions invalidated`);
+      }
+    } else {
+      const hash = bcrypt.hashSync(password, 10);
+      db.prepare('INSERT INTO users (id, username, password_hash, is_admin) VALUES (?, ?, ?, 1)')
+        .run(uuidv4(), username, hash);
+      logger.info(`Admin user "${username}" created from env vars`);
+    }
+    return;
   }
 
-  if (adminPassword) {
-    upsertSetting.run('admin_password', bcrypt.hashSync(adminPassword, 10));
-  } else if (!existingAdminPassword) {
-    const generatedAdminPassword = generateSecurePassword();
-    upsertSetting.run('admin_password', bcrypt.hashSync(generatedAdminPassword, 10));
+  const anyAdmin = db.prepare('SELECT id FROM users WHERE is_admin = 1 LIMIT 1').get();
+  if (!anyAdmin) {
+    const generated = generateSecurePassword();
+    db.prepare('INSERT INTO users (id, username, password_hash, is_admin) VALUES (?, ?, ?, 1)')
+      .run(uuidv4(), 'admin', bcrypt.hashSync(generated, 10));
     console.log('\n' + '='.repeat(60));
-    console.log('SECURITY: No ADMIN_PASSWORD env var set.');
-    console.log('Generated random admin password: ' + generatedAdminPassword);
-    console.log('Set ADMIN_PASSWORD env var to use a custom password.');
+    console.log('SECURITY: No ADMIN_USERNAME / ADMIN_PASSWORD env vars set.');
+    console.log('Generated admin user: admin');
+    console.log('Generated password: ' + generated);
+    console.log('Set ADMIN_USERNAME and ADMIN_PASSWORD env vars to use custom credentials.');
     console.log('='.repeat(60) + '\n');
   }
+}
 
-  // Initialize default non-password settings
+/**
+ * Initialize default non-auth settings.
+ */
+function initializeSettings() {
+  const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
   initSetting.run('api_key', '');
   initSetting.run('api_model', 'gpt-4');
   initSetting.run('max_tokens_before_compact', '8000');
+}
+
+/**
+ * Prune expired auth_sessions rows.
+ */
+function pruneExpiredSessions() {
+  try {
+    db.prepare('DELETE FROM auth_sessions WHERE expires_at < CURRENT_TIMESTAMP').run();
+  } catch (e) {
+    // Table may not exist yet on very first boot — safe to ignore
+  }
 }
 
 // Initialize on module load
@@ -360,7 +421,9 @@ migrateMulticlass();
 migrateAcEffects();
 migrateEquipmentToInventory();
 seedApiConfig();
-initializePasswords();
+initializeSettings();
+bootstrapAdminUser();
+pruneExpiredSessions();
 
 module.exports = {
   db,

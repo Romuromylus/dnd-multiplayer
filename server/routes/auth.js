@@ -1,53 +1,113 @@
 /**
  * Authentication Routes
- * Admin auth and settings (game auth handled by EasyPanel basic auth)
+ * Cookie-based user sessions.
  */
 
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const { validate, validateBody, schemas } = require('../lib/validation');
 
-function createAuthRoutes(db, auth, rateLimiter) {
+// Precomputed bcrypt hash of a random string. Used to keep login timing constant
+// when a supplied username does not exist (prevents user enumeration).
+const DUMMY_HASH = bcrypt.hashSync('__invalid__placeholder__', 10);
+
+// In-memory sliding-window rate limit for POST /api/login.
+// Keyed on client IP + submitted username. Single-node deploy behind Basic Auth,
+// so a Map is sufficient; no Redis/new dep required.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const LOGIN_MAX_ATTEMPTS = 10;
+const loginAttempts = new Map();
+
+function checkLoginRateLimit(key) {
+  const now = Date.now();
+  const windowStart = now - LOGIN_WINDOW_MS;
+  const entry = loginAttempts.get(key) || [];
+  const recent = entry.filter(ts => ts > windowStart);
+  if (recent.length >= LOGIN_MAX_ATTEMPTS) {
+    return { allowed: false, retryAfter: Math.ceil((recent[0] + LOGIN_WINDOW_MS - now) / 1000) };
+  }
+  recent.push(now);
+  loginAttempts.set(key, recent);
+  return { allowed: true };
+}
+
+function clearLoginRateLimit(key) {
+  loginAttempts.delete(key);
+}
+
+// Periodic sweep so the Map can't grow unboundedly.
+setInterval(() => {
+  const cutoff = Date.now() - LOGIN_WINDOW_MS;
+  for (const [key, timestamps] of loginAttempts) {
+    const kept = timestamps.filter(ts => ts > cutoff);
+    if (kept.length === 0) loginAttempts.delete(key);
+    else loginAttempts.set(key, kept);
+  }
+}, 5 * 60 * 1000).unref();
+
+function createAuthRoutes(db, auth) {
   const router = express.Router();
-  const { checkPassword, checkAdminPassword } = auth;
+  const { requireUser, requireAdmin, createSession, deleteSession, buildCookie, isSecureRequest } = auth;
 
   /**
-   * POST /api/auth
-   * Verify game password
+   * POST /api/login  { username, password }
    */
-  router.post('/auth', validateBody(schemas.auth), checkPassword, (req, res) => {
+  router.post('/login', validateBody(schemas.login), (req, res) => {
+    const username = validate.sanitizeString(req.body.username, 100);
+    const password = validate.sanitizeString(req.body.password, 200);
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const rateKey = `${req.ip}:${username.toLowerCase()}`;
+    const gate = checkLoginRateLimit(rateKey);
+    if (!gate.allowed) {
+      res.setHeader('Retry-After', String(gate.retryAfter));
+      return res.status(429).json({ error: `Too many login attempts. Try again in ${gate.retryAfter}s.` });
+    }
+
+    const user = db.prepare('SELECT id, username, password_hash, is_admin FROM users WHERE username = ?').get(username);
+    // Always run bcrypt — against the real hash if the user exists, else a dummy.
+    // Keeps response time constant so attackers can't enumerate usernames via timing.
+    const hashToCheck = user ? user.password_hash : DUMMY_HASH;
+    const passwordValid = bcrypt.compareSync(password, hashToCheck);
+    if (!user || !passwordValid) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const { token, maxAgeSeconds } = createSession(user.id);
+    const cookie = buildCookie(token, { maxAgeSeconds, secure: isSecureRequest(req) });
+    res.setHeader('Set-Cookie', cookie);
+    clearLoginRateLimit(rateKey);
+    res.json({ user: { id: user.id, username: user.username, is_admin: user.is_admin } });
+  });
+
+  /**
+   * POST /api/logout
+   */
+  router.post('/logout', requireUser, (req, res) => {
+    deleteSession(req.sessionToken);
+    const cookie = buildCookie('', { clear: true, secure: isSecureRequest(req) });
+    res.setHeader('Set-Cookie', cookie);
     res.json({ success: true });
   });
 
   /**
-   * POST /api/admin-auth
-   * Verify admin password
+   * GET /api/me
    */
-  router.post('/admin-auth', validateBody(schemas.adminAuth), checkPassword, (req, res) => {
-    const bcrypt = require('bcryptjs');
-    const { adminPassword } = req.body;
-    const sanitizedAdminPassword = validate.sanitizeString(adminPassword, 200);
-    const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
-
-    if (storedHash && bcrypt.compareSync(sanitizedAdminPassword, storedHash.value)) {
-      res.json({ success: true });
-    } else {
-      res.status(403).json({ error: 'Invalid admin password' });
-    }
+  router.get('/me', requireUser, (req, res) => {
+    res.json({ user: req.user });
   });
 
   /**
-   * GET /api/settings
-   * Get application settings (admin only)
+   * GET /api/settings  (admin only)
    */
-  router.get('/settings', checkAdminPassword, (req, res) => {
+  router.get('/settings', requireAdmin, (req, res) => {
     const settings = {};
     const rows = db.prepare('SELECT key, value FROM settings').all();
     rows.forEach(row => {
-      if (row.key === 'game_password' || row.key === 'admin_password') {
-        settings[row.key] = '********';
-      } else {
-        settings[row.key] = row.value;
-      }
+      if (row.key === 'game_password' || row.key === 'admin_password') return;
+      settings[row.key] = row.value;
     });
 
     const activeConfig = db.prepare('SELECT name, model FROM api_configs WHERE is_active = 1').get();
@@ -57,18 +117,14 @@ function createAuthRoutes(db, auth, rateLimiter) {
   });
 
   /**
-   * POST /api/settings
-   * Update application settings (admin only)
+   * POST /api/settings  (admin only)
    */
-  router.post('/settings', checkAdminPassword, (req, res) => {
+  router.post('/settings', requireAdmin, (req, res) => {
     const { max_tokens_before_compact } = req.body;
-
     const updateSetting = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
-
     if (max_tokens_before_compact !== undefined) {
       updateSetting.run(String(max_tokens_before_compact), 'max_tokens_before_compact');
     }
-
     res.json({ success: true });
   });
 

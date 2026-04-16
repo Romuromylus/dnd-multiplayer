@@ -43,7 +43,7 @@ function createSessionRoutes(deps) {
   } = deps;
 
   const router = express.Router();
-  const { checkPassword, checkAdminPassword } = auth;
+  const { requireUser, requireAdmin } = auth;
   const { findCharacterByName } = tagParser;
 
   const sendToSession = typeof emitToSession === 'function'
@@ -69,12 +69,41 @@ function createSessionRoutes(deps) {
     return !!row;
   }
 
+  // Admin bypass, else user must own at least one character in the session.
+  function userCanViewSession(user, sessionId) {
+    if (user.is_admin) return true;
+    const row = db.prepare(`
+      SELECT 1 FROM session_characters sc
+      JOIN characters c ON c.id = sc.character_id
+      WHERE sc.session_id = ? AND c.user_id = ?
+      LIMIT 1
+    `).get(sessionId, user.id);
+    return !!row;
+  }
+
+  // Admin bypass, else character.user_id must equal user.id.
+  function userOwnsCharacter(user, characterId) {
+    if (user.is_admin) return true;
+    const row = db.prepare('SELECT user_id FROM characters WHERE id = ?').get(characterId);
+    return !!row && row.user_id === user.id;
+  }
+
   /**
    * GET /api/sessions
    * List all sessions
    */
-  router.get('/', checkPassword, (req, res) => {
-    const sessions = db.prepare('SELECT * FROM game_sessions ORDER BY created_at DESC').all();
+  router.get('/', requireUser, (req, res) => {
+    if (req.user.is_admin) {
+      const sessions = db.prepare('SELECT * FROM game_sessions ORDER BY created_at DESC').all();
+      return res.json(sessions);
+    }
+    const sessions = db.prepare(`
+      SELECT DISTINCT gs.* FROM game_sessions gs
+      JOIN session_characters sc ON sc.session_id = gs.id
+      JOIN characters c ON c.id = sc.character_id
+      WHERE c.user_id = ?
+      ORDER BY gs.created_at DESC
+    `).all(req.user.id);
     res.json(sessions);
   });
 
@@ -82,13 +111,27 @@ function createSessionRoutes(deps) {
    * POST /api/sessions
    * Create new session with optional AI opening scene
    */
-  router.post('/', checkPassword, validateBody(schemas.session), async (req, res) => {
+  router.post('/', requireUser, validateBody(schemas.session), async (req, res) => {
     const { name, scenario, scenarioPrompt, characterIds } = req.body;
 
     const sanitizedName = validate.sanitizeString(name, 200);
     const sanitizedScenario = validate.sanitizeString(scenario || 'classic_fantasy', 100);
     const sanitizedPrompt = validate.sanitizeString(scenarioPrompt || '', 10000);
-    const validCharIds = (characterIds || []).filter(id => validate.isUUID(id));
+    let validCharIds = (characterIds || []).filter(id => validate.isUUID(id));
+
+    // Non-admins: must include at least one of their own characters, and any non-owned
+    // character ids they passed are dropped (admin may create sessions with any chars).
+    if (!req.user.is_admin && validCharIds.length > 0) {
+      const placeholders = validCharIds.map(() => '?').join(',');
+      const ownedRows = db.prepare(
+        `SELECT id FROM characters WHERE user_id = ? AND id IN (${placeholders})`
+      ).all(req.user.id, ...validCharIds);
+      const ownedIds = new Set(ownedRows.map(r => r.id));
+      validCharIds = validCharIds.filter(id => ownedIds.has(id));
+      if (validCharIds.length === 0) {
+        return res.status(400).json({ error: 'Session must include at least one character you own' });
+      }
+    }
 
     const id = uuidv4();
 
@@ -211,9 +254,13 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * GET /api/sessions/:id
    * Get session details with pending actions
    */
-  router.get('/:id', checkPassword, (req, res) => {
+  router.get('/:id', requireUser, (req, res) => {
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(req.params.id);
     if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    if (!userCanViewSession(req.user, req.params.id)) {
+      return res.status(403).json({ error: 'You do not have a character in this session' });
+    }
 
     const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(req.params.id);
     const sessionChars = getSessionCharacters(req.params.id);
@@ -225,7 +272,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * DELETE /api/sessions/:id
    * Delete session and associated data
    */
-  router.delete('/:id', checkPassword, checkAdminPassword, (req, res) => {
+  router.delete('/:id', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
 
     try {
@@ -251,7 +298,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * POST /api/sessions/:id/action
    * Submit player action
    */
-  router.post('/:id/action', checkPassword, async (req, res) => {
+  router.post('/:id/action', requireUser, async (req, res) => {
     const { character_id, action } = req.body;
     const sessionId = req.params.id;
 
@@ -268,6 +315,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     if (!isCharacterInSession(sessionId, character_id)) {
       return res.status(403).json({ error: 'Character is not part of this session' });
+    }
+
+    if (!userOwnsCharacter(req.user, character_id)) {
+      return res.status(403).json({ error: 'You do not own this character' });
     }
 
     const existing = db.prepare('SELECT * FROM pending_actions WHERE session_id = ? AND character_id = ?').get(sessionId, character_id);
@@ -305,8 +356,12 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * DELETE /api/sessions/:id/action/:characterId
    * Cancel pending action
    */
-  router.delete('/:id/action/:characterId', checkPassword, (req, res) => {
+  router.delete('/:id/action/:characterId', requireUser, (req, res) => {
     const { id: sessionId, characterId } = req.params;
+
+    if (!userOwnsCharacter(req.user, characterId)) {
+      return res.status(403).json({ error: 'You do not own this character' });
+    }
 
     db.prepare('DELETE FROM pending_actions WHERE session_id = ? AND character_id = ?').run(sessionId, characterId);
 
@@ -320,7 +375,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * POST /api/sessions/:id/process
    * Force process turn (DM override)
    */
-  router.post('/:id/process', checkPassword, checkAdminPassword, async (req, res) => {
+  router.post('/:id/process', requireAdmin, async (req, res) => {
     const sessionId = req.params.id;
 
     if (processingSessions.has(sessionId)) {
@@ -349,7 +404,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * POST /api/sessions/:id/gm-message
    * Send hidden GM message (admin only)
    */
-  router.post('/:id/gm-message', checkPassword, checkAdminPassword, (req, res) => {
+  router.post('/:id/gm-message', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const { message } = req.body;
 
@@ -379,10 +434,14 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * POST /api/sessions/:id/generate-choices
    * Generate choices on demand for the current scene
    */
-  router.post('/:id/generate-choices', checkPassword, async (req, res) => {
+  router.post('/:id/generate-choices', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    if (!userCanViewSession(req.user, sessionId)) {
+      return res.status(403).json({ error: 'You do not have a character in this session' });
+    }
 
     const rawConfig = getActiveApiConfig();
     if (!rawConfig) return res.status(400).json({ error: 'No active API configuration' });
@@ -455,7 +514,7 @@ RULES:
    * POST /api/sessions/:id/reroll
    * Reroll - Regenerate the last AI response (admin only)
    */
-  router.post('/:id/reroll', checkPassword, checkAdminPassword, async (req, res) => {
+  router.post('/:id/reroll', requireAdmin, async (req, res) => {
     const sessionId = req.params.id;
 
     if (processingSessions.has(sessionId)) {
@@ -579,7 +638,7 @@ RULES:
    * POST /api/sessions/:id/auto-reply
    * AI Auto-Reply - Generate and submit action for a character
    */
-  router.post('/:id/auto-reply', checkPassword, async (req, res) => {
+  router.post('/:id/auto-reply', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     const { character_id, context } = req.body;
 
@@ -592,6 +651,10 @@ RULES:
 
     if (!character_id) {
       return res.status(400).json({ error: 'Character ID is required' });
+    }
+
+    if (!userOwnsCharacter(req.user, character_id)) {
+      return res.status(403).json({ error: 'You do not own this character' });
     }
 
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
@@ -777,7 +840,7 @@ Generate ONLY a brief action description.`;
    * GET /api/sessions/:id/summary
    * Get session summary (admin only)
    */
-  router.get('/:id/summary', checkPassword, checkAdminPassword, (req, res) => {
+  router.get('/:id/summary', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -796,7 +859,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/summary
    * Update session summary (admin only)
    */
-  router.post('/:id/summary', checkPassword, checkAdminPassword, (req, res) => {
+  router.post('/:id/summary', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const { summary } = req.body;
 
@@ -813,7 +876,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/force-compact
    * Force compact session history (admin only)
    */
-  router.post('/:id/force-compact', checkPassword, checkAdminPassword, async (req, res) => {
+  router.post('/:id/force-compact', requireAdmin, async (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
 
@@ -862,7 +925,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/delete-message
    * Delete message from session history
    */
-  router.post('/:id/delete-message', checkPassword, checkAdminPassword, (req, res) => {
+  router.post('/:id/delete-message', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const { index } = req.body;
 
@@ -911,7 +974,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/recalculate-xp
    * Scan history for XP awards
    */
-  router.post('/:id/recalculate-xp', checkPassword, (req, res) => {
+  router.post('/:id/recalculate-xp', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -968,7 +1031,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/recalculate-loot
    * Scan history for gold and items
    */
-  router.post('/:id/recalculate-loot', checkPassword, (req, res) => {
+  router.post('/:id/recalculate-loot', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -1068,7 +1131,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/recalculate-inventory
    * Recalculate inventory only from session history
    */
-  router.post('/:id/recalculate-inventory', checkPassword, (req, res) => {
+  router.post('/:id/recalculate-inventory', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
 
@@ -1148,7 +1211,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/recalculate-ac-spells
    * Recalculate AC and spell slots from session history
    */
-  router.post('/:id/recalculate-ac-spells', checkPassword, (req, res) => {
+  router.post('/:id/recalculate-ac-spells', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
 
@@ -1374,7 +1437,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/add-character
    * Add a character to the session
    */
-  router.post('/:id/add-character', checkPassword, checkAdminPassword, (req, res) => {
+  router.post('/:id/add-character', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const { characterId } = req.body;
 
@@ -1406,7 +1469,7 @@ Generate ONLY a brief action description.`;
    * POST /api/sessions/:id/remove-character
    * Remove a character from the session
    */
-  router.post('/:id/remove-character', checkPassword, checkAdminPassword, (req, res) => {
+  router.post('/:id/remove-character', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
     const { characterId } = req.body;
 

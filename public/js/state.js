@@ -3,13 +3,11 @@
 // ============================================
 
 const state = {
-  gamePassword: '',
-  isGameAuthenticated: false,
-  adminPassword: '',
-  isAdminAuthenticated: false,
+  currentUser: null, // { id, username, is_admin }
   currentSession: null,
   characters: [],
   sessionCharacters: [],
+  users: [], // admin-only: list of users for owner dropdowns
   socket: null,
   isTurnProcessing: false,
   storyScrollPosition: 0,
@@ -22,7 +20,6 @@ const state = {
   modalCharacterId: null,
   modalMessages: [],
   modalMode: 'edit',
-  adminLoginResolve: null,
 
   // Level up modal
   levelUpModalCharId: null,

@@ -31,7 +31,7 @@
           "mountPath": "/app/data"
         }
       ],
-      "env": "PORT=3000\nNODE_ENV=production\nDB_PATH=/app/data/dnd.db\nGAME_PASSWORD=change_me_strong_password\nADMIN_PASSWORD=change_me_admin_password"
+      "env": "PORT=3000\nNODE_ENV=production\nDB_PATH=/app/data/dnd.db\nADMIN_USERNAME=admin\nADMIN_PASSWORD=change_me_admin_password"
     }
   ]
 }

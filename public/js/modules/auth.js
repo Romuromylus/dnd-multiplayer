@@ -1,28 +1,20 @@
 // ============================================
-// Auth Module
-// - Game and admin auth
+// Auth Module — user login via cookie session
 // ============================================
 
 import { getState, setState } from '../state.js';
-import { escapeHtml, formatChatMessage } from '../utils/formatters.js';
-import { scrollChatToBottom } from '../utils/dom.js';
+import { api } from '../api.js';
 
 // ============================================
-// State persistence
+// State persistence (app shell — NOT credentials)
 // ============================================
 
 export function saveAppState() {
-  const {
-    currentSession, charCreationInProgress,
-    charCreationMessages, gamePassword,
-    isGameAuthenticated
-  } = getState();
+  const { currentSession, charCreationInProgress, charCreationMessages } = getState();
 
   const stateToSave = {
     currentSessionId: currentSession ? currentSession.id : null,
     currentTab: document.querySelector('.tab-btn.active')?.dataset.tab || 'game',
-    gamePassword,
-    isGameAuthenticated,
     charCreationInProgress,
     charCreationMessages,
     autoReplySessionId: document.getElementById('autoreply-session-select')?.value || '',
@@ -42,86 +34,75 @@ function loadAppState() {
 }
 
 // ============================================
-// Session restore (app state only, no auth)
+// Bootstrap: try cookie session → fetch /api/me
 // ============================================
 
 export async function restoreSession() {
-  const savedState = loadAppState();
-  if (!savedState || !savedState.isGameAuthenticated || !savedState.gamePassword) return false;
-
+  let me;
   try {
-    const authCheck = await fetch('/api/auth', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Game-Password': savedState.gamePassword
-      },
-      body: JSON.stringify({ password: savedState.gamePassword })
-    });
-    if (!authCheck.ok) return false;
-  } catch (error) {
+    me = await api('/api/me');
+  } catch (e) {
     return false;
   }
+  if (!me || !me.user) return false;
+  setState({ currentUser: me.user });
 
-  setState({
-    gamePassword: savedState.gamePassword,
-    isGameAuthenticated: true
-  });
+  const savedState = loadAppState();
 
   try {
     const { initSocket } = await import('../socket.js');
     const { loadInitialData } = await import('../main.js');
     const { loadSession } = await import('./sessions.js');
     const { loadAutoReplyCharacters } = await import('./settings.js');
+    const { escapeHtml, formatChatMessage } = await import('../utils/formatters.js');
+    const { scrollChatToBottom } = await import('../utils/dom.js');
 
     initSocket();
     await loadInitialData();
 
-    // Restore active tab
-    if (savedState.currentTab) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      document.querySelector(`.tab-btn[data-tab="${savedState.currentTab}"]`)?.classList.add('active');
-      document.getElementById(`${savedState.currentTab}-tab`)?.classList.add('active');
-    }
+    if (savedState) {
+      if (savedState.currentTab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelector(`.tab-btn[data-tab="${savedState.currentTab}"]`)?.classList.add('active');
+        document.getElementById(`${savedState.currentTab}-tab`)?.classList.add('active');
+      }
 
-    // Restore current session
-    if (savedState.currentSessionId) {
-      await loadSession(savedState.currentSessionId).catch(e => {
-        console.warn('[DnD] Could not restore session:', e.message);
-      });
-    }
+      if (savedState.currentSessionId) {
+        await loadSession(savedState.currentSessionId).catch(e => {
+          console.warn('[DnD] Could not restore session:', e.message);
+        });
+      }
 
-    // Restore auto-reply selections
-    if (savedState.autoReplySessionId) {
-      const autoReplySelect = document.getElementById('autoreply-session-select');
-      if (autoReplySelect) {
-        autoReplySelect.value = savedState.autoReplySessionId;
-        await loadAutoReplyCharacters().catch(() => {});
-        if (savedState.autoReplyCharacterId) {
-          const charSelect = document.getElementById('autoreply-character-select');
-          if (charSelect) charSelect.value = savedState.autoReplyCharacterId;
+      if (savedState.autoReplySessionId) {
+        const autoReplySelect = document.getElementById('autoreply-session-select');
+        if (autoReplySelect) {
+          autoReplySelect.value = savedState.autoReplySessionId;
+          await loadAutoReplyCharacters().catch(() => {});
+          if (savedState.autoReplyCharacterId) {
+            const charSelect = document.getElementById('autoreply-character-select');
+            if (charSelect) charSelect.value = savedState.autoReplyCharacterId;
+          }
         }
       }
-    }
 
-    // Restore character creation state
-    if (savedState.charCreationInProgress && savedState.charCreationMessages) {
-      setState({
-        charCreationInProgress: true,
-        charCreationMessages: savedState.charCreationMessages
-      });
+      if (savedState.charCreationInProgress && savedState.charCreationMessages) {
+        setState({
+          charCreationInProgress: true,
+          charCreationMessages: savedState.charCreationMessages
+        });
 
-      document.getElementById('start-creation-btn').disabled = true;
-      document.getElementById('char-chat-input').disabled = false;
-      document.getElementById('char-chat-send').disabled = false;
+        document.getElementById('start-creation-btn').disabled = true;
+        document.getElementById('char-chat-input').disabled = false;
+        document.getElementById('char-chat-send').disabled = false;
 
-      const messagesContainer = document.getElementById('char-chat-messages');
-      messagesContainer.innerHTML = savedState.charCreationMessages
-        .filter(m => m.role !== 'system')
-        .map(m => `<div class="chat-message ${m.role === 'user' ? 'user' : 'assistant'}"><div class="message-content">${m.role === 'user' ? escapeHtml(m.content) : formatChatMessage(m.content)}</div></div>`)
-        .join('');
-      scrollChatToBottom();
+        const messagesContainer = document.getElementById('char-chat-messages');
+        messagesContainer.innerHTML = savedState.charCreationMessages
+          .filter(m => m.role !== 'system')
+          .map(m => `<div class="chat-message ${m.role === 'user' ? 'user' : 'assistant'}"><div class="message-content">${m.role === 'user' ? escapeHtml(m.content) : formatChatMessage(m.content)}</div></div>`)
+          .join('');
+        scrollChatToBottom();
+      }
     }
   } catch (e) {
     console.error('[DnD] Restore session error:', e);
@@ -131,107 +112,69 @@ export async function restoreSession() {
 }
 
 // ============================================
-// Admin auth
+// Login / Logout
 // ============================================
 
-export function showAdminModal() {
-  document.getElementById('admin-modal').classList.add('active');
-  document.getElementById('admin-password-input').value = '';
-  document.getElementById('admin-login-error').textContent = '';
-  document.getElementById('admin-password-input').focus();
+export function showLoginModal() {
+  document.getElementById('login-modal').classList.add('active');
+  const pwd = document.getElementById('login-password-input');
+  const err = document.getElementById('login-error');
+  if (pwd) pwd.value = '';
+  if (err) err.textContent = '';
+  const user = document.getElementById('login-username-input');
+  if (user) user.focus();
 }
 
-export function closeAdminModal() {
-  document.getElementById('admin-modal').classList.remove('active');
-  const resolve = getState('adminLoginResolve');
-  if (resolve) {
-    resolve(false);
-    setState({ adminLoginResolve: null });
-  }
+function hideLoginModal() {
+  document.getElementById('login-modal').classList.remove('active');
 }
 
-export async function submitAdminLogin() {
-  const pwd = document.getElementById('admin-password-input').value;
-  const gamePassword = getState('gamePassword');
-  if (!pwd) {
-    document.getElementById('admin-login-error').textContent = 'Please enter a password';
-    return;
+export async function submitLogin() {
+  const username = document.getElementById('login-username-input').value.trim();
+  const password = document.getElementById('login-password-input').value;
+  const errEl = document.getElementById('login-error');
+  if (!username || !password) {
+    if (errEl) errEl.textContent = 'Enter username and password';
+    return false;
   }
 
   try {
-    const result = await fetch('/api/admin-auth', {
+    const res = await fetch('/api/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Game-Password': gamePassword || ''
-      },
-      body: JSON.stringify({ adminPassword: pwd })
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
     });
-
-    if (result.ok) {
-      setState({ adminPassword: pwd, isAdminAuthenticated: true });
-      document.getElementById('admin-modal').classList.remove('active');
-      const resolve = getState('adminLoginResolve');
-      if (resolve) {
-        resolve(true);
-        setState({ adminLoginResolve: null });
-      }
-    } else {
-      const data = await result.json();
-      document.getElementById('admin-login-error').textContent = data.error || 'Invalid admin password';
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (errEl) errEl.textContent = data.error || 'Login failed';
+      return false;
     }
-  } catch (error) {
-    document.getElementById('admin-login-error').textContent = 'Failed to authenticate';
+    const data = await res.json();
+    setState({ currentUser: data.user });
+    hideLoginModal();
+    saveAppState();
+    return true;
+  } catch (e) {
+    if (errEl) errEl.textContent = 'Login failed: ' + e.message;
+    return false;
   }
 }
 
-export function promptAdminLogin() {
-  return new Promise((resolve) => {
-    setState({ adminLoginResolve: resolve });
-    showAdminModal();
-  });
-}
-
-// ============================================
-// Game auth
-// ============================================
-
-export function showGameModal() {
-  document.getElementById('game-modal').classList.add('active');
-  document.getElementById('game-password-input').value = '';
-  document.getElementById('game-login-error').textContent = '';
-  document.getElementById('game-password-input').focus();
-}
-
-export async function submitGameLogin() {
-  const pwd = document.getElementById('game-password-input').value;
-  if (!pwd) {
-    document.getElementById('game-login-error').textContent = 'Please enter a password';
-    return;
-  }
-
+export async function logout() {
   try {
-    const result = await fetch('/api/auth', {
+    await fetch('/api/logout', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Game-Password': pwd
-      },
-      body: JSON.stringify({ password: pwd })
+      credentials: 'same-origin'
     });
-
-    if (result.ok) {
-      setState({ gamePassword: pwd, isGameAuthenticated: true });
-      document.getElementById('game-modal').classList.remove('active');
-      saveAppState();
-      return true;
-    }
-
-    const data = await result.json().catch(() => ({}));
-    document.getElementById('game-login-error').textContent = data.error || 'Invalid game password';
-    return false;
-  } catch (error) {
-    document.getElementById('game-login-error').textContent = 'Failed to authenticate';
-    return false;
+  } catch (e) {
+    // ignore — we clear client state regardless
   }
+  const socket = getState('socket');
+  if (socket) {
+    try { socket.disconnect(); } catch (e) {}
+  }
+  setState({ currentUser: null, currentSession: null, characters: [], sessionCharacters: [], socket: null });
+  sessionStorage.removeItem('dnd-app-state');
+  window.location.reload();
 }

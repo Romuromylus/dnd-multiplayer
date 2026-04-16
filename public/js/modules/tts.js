@@ -69,12 +69,11 @@ class TTSManager {
 
     try {
       console.log(`Fetching audio for chunk ${index}...`);
-      const gamePassword = getState('gamePassword');
       const response = await fetch('/api/tts/audio', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Game-Password': gamePassword || ''
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           text: this.currentText,
@@ -145,12 +144,11 @@ class TTSManager {
 
   async prefetchChunk(index) {
     try {
-      const gamePassword = getState('gamePassword');
       fetch('/api/tts/audio', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Game-Password': gamePassword || ''
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           text: this.currentText,

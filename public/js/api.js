@@ -2,26 +2,16 @@
 // API Fetch Wrapper
 // ============================================
 
-import { getState, setState } from './state.js';
+import { setState } from './state.js';
 
 export async function api(endpoint, method = 'GET', body = null) {
-  const { gamePassword, adminPassword } = getState();
-
   const options = {
     method,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json'
     }
   };
-
-  if (gamePassword) {
-    options.headers['X-Game-Password'] = gamePassword;
-  }
-
-  // Add admin password header if authenticated
-  if (adminPassword) {
-    options.headers['X-Admin-Password'] = adminPassword;
-  }
 
   if (body) {
     options.body = JSON.stringify(body);
@@ -30,13 +20,12 @@ export async function api(endpoint, method = 'GET', body = null) {
   const response = await fetch(endpoint, options);
 
   if (response.status === 401) {
-    setState({ isGameAuthenticated: false, gamePassword: '', isAdminAuthenticated: false, adminPassword: '' });
-    throw new Error('Game authentication required');
+    setState({ currentUser: null });
+    throw new Error('Authentication required');
   }
 
   if (response.status === 403) {
-    setState({ isAdminAuthenticated: false, adminPassword: '' });
-    throw new Error('Admin access required');
+    throw new Error('Forbidden');
   }
 
   // Check content type before parsing

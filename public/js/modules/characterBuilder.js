@@ -6,7 +6,6 @@
 // ============================================
 
 import { api } from '../api.js';
-import { getState } from '../state.js';
 import { loadCharacters } from './characters.js';
 import { escapeHtml } from '../utils/formatters.js';
 import { showNotification } from '../utils/dom.js';
@@ -1200,7 +1199,7 @@ export async function saveNewCharacter() {
       formData.append('image', builder.imageFile);
       await fetch(`/api/characters/${character.id}/image`, {
         method: 'POST',
-        headers: { 'X-Admin-Password': getState('adminPassword') || '' },
+        credentials: 'same-origin',
         body: formData
       });
     }

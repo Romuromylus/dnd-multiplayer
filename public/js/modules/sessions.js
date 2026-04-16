@@ -1331,6 +1331,13 @@ export async function submitAction() {
   if (!characterId) { alert('Please select your character'); return; }
   if (!action.trim()) { alert('Please enter an action'); return; }
 
+  const user = getState('currentUser');
+  const selectedChar = getSelectedCharacter();
+  if (user && selectedChar && !user.is_admin && selectedChar.user_id && selectedChar.user_id !== user.id) {
+    alert('You do not control this character — switch to one you own to act.');
+    return;
+  }
+
   // Check for slash commands before submitting
   if (handleSlashCommand(action, characterId)) {
     actionTextarea.value = '';
@@ -1455,13 +1462,30 @@ export async function retryTurn() {
 
 export function updateActionFormState() {
   const isTurnProcessing = getState('isTurnProcessing');
+  const user = getState('currentUser');
   const submitBtn = document.getElementById('submit-action-btn');
   const actionTextarea = document.getElementById('action-text');
   const diceBtn = document.getElementById('dice-roll-btn');
   const statSelect = document.getElementById('dice-stat-select');
+  const viewOnlyBanner = document.getElementById('view-only-banner');
+
+  // Determine if the currently-selected character is owned by the logged-in user.
+  // Non-owned characters are view-only (POV switching works, but no input/actions).
+  const selectedChar = getSelectedCharacter();
+  const isOwned = !selectedChar || !user
+    ? true
+    : (user.is_admin || selectedChar.user_id === user.id || !selectedChar.user_id);
+  const viewOnly = !isOwned;
+
+  if (viewOnlyBanner) {
+    viewOnlyBanner.style.display = viewOnly ? '' : 'none';
+  }
 
   if (submitBtn) {
-    if (isTurnProcessing) {
+    if (viewOnly) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'View only';
+    } else if (isTurnProcessing) {
       submitBtn.disabled = true;
       submitBtn.textContent = 'Narrator is typing...';
     } else {
@@ -1471,22 +1495,22 @@ export function updateActionFormState() {
   }
 
   if (actionTextarea) {
-    actionTextarea.disabled = isTurnProcessing;
-    actionTextarea.placeholder = isTurnProcessing
-      ? 'Please wait for the Narrator to finish...'
-      : 'What do you do?';
+    actionTextarea.disabled = viewOnly || isTurnProcessing;
+    actionTextarea.placeholder = viewOnly
+      ? 'View only — you do not control this character.'
+      : (isTurnProcessing ? 'Please wait for the Narrator to finish...' : 'What do you do?');
   }
 
-  // Re-enable dice if turn processing ended and no roll is pending
   if (diceBtn) {
-    if (isTurnProcessing) {
+    if (viewOnly) {
+      diceBtn.disabled = true;
+    } else if (isTurnProcessing) {
       diceBtn.disabled = true;
     } else if (_rollCount < 2) {
       diceBtn.disabled = false;
       diceBtn.classList.remove('dice-locked', 'inspiration-reroll');
       diceBtn.title = _rollCount === 0 ? 'Roll d20' : 'Reroll (1 free reroll left)';
     } else {
-      // Past free rerolls — check inspiration
       const char = getSelectedCharacter();
       const inspirationLeft = char ? (char.inspiration_points || 0) : 0;
       if (inspirationLeft > 0) {
@@ -1498,7 +1522,7 @@ export function updateActionFormState() {
     }
   }
   if (statSelect) {
-    statSelect.disabled = isTurnProcessing;
+    statSelect.disabled = viewOnly || isTurnProcessing;
   }
 }
 

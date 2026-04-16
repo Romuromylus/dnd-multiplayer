@@ -21,7 +21,7 @@ const { applyAllTags } = require('./services/tagApplicator');
 const { processAITurn: processAITurnCore, streamAITurn: streamAITurnCore, compactHistory, estimateTokens } = require('./services/turnProcessor');
 
 // Import auth middleware factory
-const { createAuthMiddleware } = require('./middleware/auth');
+const { createAuthHelpers, parseCookie, SESSION_COOKIE } = require('./middleware/auth');
 
 // Import route initializer
 const { initializeRoutes } = require('./routes');
@@ -73,8 +73,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../data/uploads')));
 // ============================================
 // Auth
 // ============================================
-const { checkPassword, checkAdminPassword, verifyGamePassword } = createAuthMiddleware(db);
-const auth = { checkPassword, checkAdminPassword, verifyGamePassword };
+const auth = createAuthHelpers(db);
 
 const SESSION_ROOM_PREFIX = 'session:';
 function getSessionRoom(sessionId) {
@@ -162,6 +161,7 @@ app.use('/api/api-configs', routes.apiConfig);
 app.use('/api/sessions', routes.sessions);
 app.use('/api/tts', routes.tts);
 app.use('/api/dnd', routes.dndData);
+app.use('/api/admin', routes.adminUsers);
 
 // Global error handler (must be last middleware)
 app.use(errorHandler);
@@ -169,19 +169,39 @@ app.use(errorHandler);
 // ============================================
 // Socket.IO
 // ============================================
+function userCanViewSessionSocket(user, sessionId) {
+  if (user.is_admin) return true;
+  const row = db.prepare(`
+    SELECT 1 FROM session_characters sc
+    JOIN characters c ON c.id = sc.character_id
+    WHERE sc.session_id = ? AND c.user_id = ?
+    LIMIT 1
+  `).get(sessionId, user.id);
+  return !!row;
+}
+
 io.use((socket, next) => {
-  const gamePwd = socket.handshake.auth?.gamePassword;
-  if (!gamePwd || !auth.verifyGamePassword(gamePwd)) {
-    return next(new Error('Game authentication required'));
-  }
+  const cookieHeader = socket.handshake.headers.cookie || '';
+  const token = parseCookie(cookieHeader, SESSION_COOKIE);
+  const loaded = token ? auth.loadUserByToken(token) : null;
+  if (!loaded) return next(new Error('authentication required'));
+  // Extend DB expiry if near end of window. HTTP routes emit a Set-Cookie to
+  // refresh the browser cookie too, which will happen on the next XHR.
+  try { auth.maybeRefreshDb(token, loaded.expires_at); } catch (e) { /* best-effort */ }
+  socket.data.user = loaded.user;
   next();
 });
 
 io.on('connection', (socket) => {
-  logger.debug('Client connected', { socketId: socket.id });
+  logger.debug('Client connected', { socketId: socket.id, userId: socket.data.user?.id });
 
   socket.on('join_session', ({ sessionId } = {}) => {
     if (!sessionId) return;
+    const user = socket.data.user;
+    if (!user || !userCanViewSessionSocket(user, sessionId)) {
+      logger.warn('Socket join_session rejected', { socketId: socket.id, userId: user?.id, sessionId });
+      return;
+    }
     socket.join(getSessionRoom(sessionId));
     logger.debug('Socket joined session room', { socketId: socket.id, sessionId });
   });

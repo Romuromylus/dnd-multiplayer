@@ -13,7 +13,7 @@ const { getCached, setCache, invalidateCache } = require('../lib/cache');
  * @param {Object} deps - Dependencies object
  * @param {Object} deps.db - Database instance
  * @param {Object} deps.io - Socket.IO instance
- * @param {Object} deps.auth - Auth middleware {checkPassword, checkAdminPassword}
+ * @param {Object} deps.auth - Auth middleware {requireUser, requireAdmin}
  * @param {Object} deps.aiService - AI service module
  * @param {Function} deps.getActiveApiConfig - Function to get active API config
  * @returns {express.Router} Configured router
@@ -21,10 +21,25 @@ const { getCached, setCache, invalidateCache } = require('../lib/cache');
 function createCharacterRoutes(deps) {
   const { db, io, auth, aiService, getActiveApiConfig } = deps;
   const router = express.Router();
-  const { checkPassword, checkAdminPassword } = auth;
+  const { requireUser, requireAdmin } = auth;
   const { upload } = require('../middleware/upload');
   const fs = require('fs');
   const path = require('path');
+
+  // Ownership guard: admin bypass, else character.user_id must equal req.user.id.
+  // Returns the character on success, or sends a response and returns null.
+  function loadOwnedCharacter(req, res) {
+    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+    if (!character) {
+      res.status(404).json({ error: 'Character not found' });
+      return null;
+    }
+    if (!req.user.is_admin && character.user_id !== req.user.id) {
+      res.status(403).json({ error: 'You do not own this character' });
+      return null;
+    }
+    return character;
+  }
 
   // XP thresholds for each level (D&D 5e)
   const XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
@@ -156,18 +171,22 @@ function createCharacterRoutes(deps) {
    * - If no page param: returns flat array (backward compatible)
    * - If page param present: returns { characters, total, page, limit, totalPages }
    */
-  router.get('/', checkPassword, (req, res) => {
+  router.get('/', requireUser, (req, res) => {
     const { page, limit } = req.query;
+    const isAdmin = !!req.user.is_admin;
+    const scope = isAdmin ? 'all' : req.user.id;
 
     // If no page param, return all as flat array (backward compatible)
     if (!page) {
-      const cacheKey = 'characters:list';
+      const cacheKey = `characters:list:${scope}`;
       const cached = getCached(cacheKey);
       if (cached) {
         return res.json(cached);
       }
 
-      const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC').all();
+      const characters = isAdmin
+        ? db.prepare('SELECT * FROM characters ORDER BY created_at DESC').all()
+        : db.prepare('SELECT * FROM characters WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
       setCache(cacheKey, characters);
       return res.json(characters);
     }
@@ -177,15 +196,19 @@ function createCharacterRoutes(deps) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const offset = (pageNum - 1) * limitNum;
 
-    const cacheKey = `characters:page:${pageNum}:${limitNum}`;
+    const cacheKey = `characters:page:${scope}:${pageNum}:${limitNum}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return res.json(cached);
     }
 
-    const total = db.prepare('SELECT COUNT(*) as count FROM characters').get().count;
+    const total = isAdmin
+      ? db.prepare('SELECT COUNT(*) as count FROM characters').get().count
+      : db.prepare('SELECT COUNT(*) as count FROM characters WHERE user_id = ?').get(req.user.id).count;
     const totalPages = Math.ceil(total / limitNum);
-    const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limitNum, offset);
+    const characters = isAdmin
+      ? db.prepare('SELECT * FROM characters ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limitNum, offset)
+      : db.prepare('SELECT * FROM characters WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?').all(req.user.id, limitNum, offset);
 
     const result = {
       characters,
@@ -202,7 +225,7 @@ function createCharacterRoutes(deps) {
    * POST /api/characters
    * Create a new character (supports both simple and full builder payloads)
    */
-  router.post('/', checkPassword, (req, res) => {
+  router.post('/', requireUser, (req, res) => {
     const {
       player_name, character_name, race, class: charClass,
       strength, dexterity, constitution, intelligence, wisdom, charisma,
@@ -220,12 +243,13 @@ function createCharacterRoutes(deps) {
     const hp = 10 + Math.floor((con - 10) / 2);
 
     db.prepare(`INSERT INTO characters (
-      id, player_name, character_name, race, class,
+      id, user_id, player_name, character_name, race, class,
       strength, dexterity, constitution, intelligence, wisdom, charisma,
       hp, max_hp, background, skills, spells, passives, class_features, feats,
       appearance, backstory, gold, inventory, spell_slots, ac, classes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id,
+      req.user.id,
       validate.sanitizeString(player_name || 'Player', 100),
       validate.sanitizeString(character_name, 100),
       validate.sanitizeString(race, 50),
@@ -254,7 +278,7 @@ function createCharacterRoutes(deps) {
    * AI-assisted generation of appearance or backstory text
    * Must be defined BEFORE /:id param routes
    */
-  router.post('/ai-assist', checkPassword, async (req, res) => {
+  router.post('/ai-assist', requireUser, async (req, res) => {
     const { field, context } = req.body;
     if (!['appearance', 'backstory'].includes(field)) {
       return res.status(400).json({ error: 'Invalid field. Must be "appearance" or "backstory".' });
@@ -286,7 +310,7 @@ function createCharacterRoutes(deps) {
    * DELETE /api/characters/:id
    * Delete a character
    */
-  router.delete('/:id', checkPassword, checkAdminPassword, (req, res) => {
+  router.delete('/:id', requireAdmin, (req, res) => {
     db.prepare('DELETE FROM characters WHERE id = ?').run(req.params.id);
     invalidateCache('characters:');
     io.emit('character_deleted', req.params.id);
@@ -297,13 +321,10 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/xp
    * Award XP to a character
    */
-  router.post('/:id/xp', checkPassword, (req, res) => {
+  router.post('/:id/xp', requireUser, (req, res) => {
     const { amount } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     const newXP = (character.xp || 0) + amount;
     db.prepare('UPDATE characters SET xp = ? WHERE id = ?').run(newXP, req.params.id);
@@ -318,12 +339,9 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/reset-xp
    * Reset XP to 0
    */
-  router.post('/:id/reset-xp', checkPassword, (req, res) => {
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+  router.post('/:id/reset-xp', requireUser, (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     db.prepare('UPDATE characters SET xp = 0 WHERE id = ?').run(req.params.id);
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
@@ -336,13 +354,10 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/gold
    * Update gold for a character
    */
-  router.post('/:id/gold', checkPassword, (req, res) => {
+  router.post('/:id/gold', requireUser, (req, res) => {
     const { amount } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     const newGold = Math.max(0, (character.gold || 0) + amount);
     db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newGold, req.params.id);
@@ -356,12 +371,9 @@ function createCharacterRoutes(deps) {
    * GET /api/characters/:id/inventory
    * Get character inventory
    */
-  router.get('/:id/inventory', checkPassword, (req, res) => {
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+  router.get('/:id/inventory', requireUser, (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     let inventory = [];
     try {
@@ -377,13 +389,10 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/inventory
    * Update character inventory (add/remove items)
    */
-  router.post('/:id/inventory', checkPassword, (req, res) => {
+  router.post('/:id/inventory', requireUser, (req, res) => {
     const { action, item, quantity = 1 } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     let inventory = [];
     try {
@@ -422,13 +431,10 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/spell-slots
    * Get/Update spell slots
    */
-  router.post('/:id/spell-slots', checkPassword, (req, res) => {
+  router.post('/:id/spell-slots', requireUser, (req, res) => {
     const { action, level, slots } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     let spellSlots = {};
     try {
@@ -463,13 +469,10 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/ac
    * Update AC and AC effects
    */
-  router.post('/:id/ac', checkPassword, (req, res) => {
+  router.post('/:id/ac', requireUser, (req, res) => {
     const { action, ac, base_source, base_value, effect } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     let acEffects = { base_source: 'Unarmored', base_value: 10, effects: [] };
     try {
@@ -509,7 +512,7 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/quick-update
    * Quick update character fields (direct, no AI)
    */
-  router.post('/:id/quick-update', checkPassword, checkAdminPassword, (req, res) => {
+  router.post('/:id/quick-update', requireAdmin, (req, res) => {
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     if (!character) {
       return res.status(404).json({ error: 'Character not found' });
@@ -557,9 +560,9 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/image
    * Upload a character image
    */
-  router.post('/:id/image', checkPassword, upload.single('image'), (req, res) => {
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-    if (!character) return res.status(404).json({ error: 'Character not found' });
+  router.post('/:id/image', requireUser, upload.single('image'), (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
     if (!req.file) return res.status(400).json({ error: 'No image file provided' });
 
     // Delete old image if exists
@@ -581,12 +584,9 @@ function createCharacterRoutes(deps) {
    * GET /api/characters/:id/levelinfo
    * Get level up info for a character
    */
-  router.get('/:id/levelinfo', checkPassword, (req, res) => {
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+  router.get('/:id/levelinfo', requireUser, (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     // XP thresholds for each level (D&D 5e)
     const xpTable = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
@@ -600,7 +600,7 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/reset-level
    * Reset character level to 1
    */
-  router.post('/:id/reset-level', checkPassword, checkAdminPassword, async (req, res) => {
+  router.post('/:id/reset-level', requireAdmin, async (req, res) => {
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
 
     if (!character) {
@@ -632,13 +632,10 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/levelup
    * AI-assisted level up
    */
-  router.post('/:id/levelup', checkPassword, async (req, res) => {
+  router.post('/:id/levelup', requireUser, async (req, res) => {
     const { messages } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     if (!canLevelUp(character.xp || 0, character.level)) {
       return res.status(400).json({
@@ -800,13 +797,10 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
    * POST /api/characters/:id/edit
    * AI-assisted character editing
    */
-  router.post('/:id/edit', checkPassword, async (req, res) => {
+  router.post('/:id/edit', requireUser, async (req, res) => {
     const { editRequest, messages } = req.body;
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     const apiConfig = getActiveApiConfig();
     if (!apiConfig || !apiConfig.api_key) {
@@ -1012,7 +1006,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
    * POST /api/characters/ai-create
    * AI-assisted character creation
    */
-  router.post('/ai-create', checkPassword, async (req, res) => {
+  router.post('/ai-create', requireUser, async (req, res) => {
     const { messages } = req.body;
 
     const apiConfig = getActiveApiConfig();
@@ -1064,10 +1058,11 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
             const classesJson = charData.classes ? JSON.stringify(charData.classes) : JSON.stringify({ [charData.class]: 1 });
 
             db.prepare(`
-              INSERT INTO characters (id, player_name, character_name, race, class, classes, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, spells, skills, passives, class_features, feats)
-              VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO characters (id, user_id, player_name, character_name, race, class, classes, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, spells, skills, passives, class_features, feats)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
               id,
+              req.user.id,
               charData.player_name,
               charData.character_name,
               charData.race,

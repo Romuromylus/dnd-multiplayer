@@ -82,11 +82,16 @@ const schemas = {
     scenarioPrompt: { type: 'string', maxLen: 10000 },
     characterIds: { type: 'array', maxLen: 50 }
   },
-  auth: {
+  login: {
+    username: { required: true, type: 'string', maxLen: 100 },
     password: { required: true, type: 'string', maxLen: 200 }
   },
-  adminAuth: {
-    adminPassword: { required: true, type: 'string', maxLen: 200 }
+  userCreate: {
+    username: { required: true, type: 'string', maxLen: 100 },
+    password: { required: true, type: 'string', maxLen: 200 }
+  },
+  passwordReset: {
+    password: { required: true, type: 'string', maxLen: 200 }
   }
 };
 

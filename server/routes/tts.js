@@ -65,13 +65,13 @@ function splitTextForTTS(text, maxLength = 4000) {
 function createTTSRoutes(deps) {
   const { db, auth, getOpenAIApiKey } = deps;
   const router = express.Router();
-  const { checkPassword } = auth;
+  const { requireUser } = auth;
 
   /**
    * POST /api/tts/info
    * Get TTS metadata (chunk count and info)
    */
-  router.post('/info', checkPassword, (req, res) => {
+  router.post('/info', requireUser, (req, res) => {
     const { text } = req.body;
 
     if (!text) {
@@ -95,7 +95,7 @@ function createTTSRoutes(deps) {
    * POST /api/tts/audio
    * Generate TTS audio for a chunk
    */
-  router.post('/audio', checkPassword, async (req, res) => {
+  router.post('/audio', requireUser, async (req, res) => {
     const { text, chunkIndex = 0, voice = 'alloy', speed = 1.0 } = req.body;
 
     if (!text) {

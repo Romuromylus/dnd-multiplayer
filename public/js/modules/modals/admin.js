@@ -1,11 +1,3 @@
-// ============================================
-// Admin Login Modal
-// (Re-exports from auth.js since admin modal is tightly coupled)
-// ============================================
-
-export {
-  showAdminModal,
-  closeAdminModal,
-  submitAdminLogin,
-  promptAdminLogin
-} from '../auth.js';
+// Removed: admin modal was replaced by unified user login.
+// Kept as a placeholder to avoid import errors if any third-party refs the file.
+export {};

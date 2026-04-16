@@ -9,15 +9,14 @@ const { createApiConfigRoutes } = require('./apiConfig');
 const { createSessionRoutes } = require('./sessions');
 const { createTTSRoutes } = require('./tts');
 const { createDndDataRoutes } = require('./dndData');
+const { createAdminUserRoutes } = require('./adminUsers');
 
 /**
  * Initialize all routes with dependencies
- * @param {Object} deps - Dependencies object
- * @returns {Object} Object containing all route handlers
  */
 function initializeRoutes(deps) {
   const {
-    db, io, auth, authLimiter, aiService, emitToSession,
+    db, io, auth, aiService, emitToSession,
     processingSessions, getActiveApiConfig, processAITurn,
     DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
     parseAcEffects, calculateTotalAC, updateCharacterAC,
@@ -25,7 +24,7 @@ function initializeRoutes(deps) {
   } = deps;
 
   return {
-    auth: createAuthRoutes(db, auth, authLimiter),
+    auth: createAuthRoutes(db, auth),
     characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig }),
     apiConfig: createApiConfigRoutes(db, auth),
     sessions: createSessionRoutes({
@@ -42,7 +41,8 @@ function initializeRoutes(deps) {
       getSessionCharacters
     }),
     tts: createTTSRoutes({ db, auth, getOpenAIApiKey }),
-    dndData: createDndDataRoutes(db, auth)
+    dndData: createDndDataRoutes(db, auth),
+    adminUsers: createAdminUserRoutes(db, auth, io)
   };
 }
 
@@ -53,5 +53,6 @@ module.exports = {
   createApiConfigRoutes,
   createSessionRoutes,
   createTTSRoutes,
-  createDndDataRoutes
+  createDndDataRoutes,
+  createAdminUserRoutes
 };
