@@ -53,6 +53,7 @@ function createCharacterRoutes(deps) {
     if (!spellSlots || typeof spellSlots !== 'object') return normalized;
 
     for (const [level, slot] of Object.entries(spellSlots)) {
+      if (!/^\d+$/.test(level)) continue;
       if (!slot || typeof slot !== 'object') continue;
       const max = Math.max(0, Number(slot.max || 0));
       const current = Number.isFinite(slot.current)
@@ -512,16 +513,14 @@ function createCharacterRoutes(deps) {
    * POST /api/characters/:id/quick-update
    * Quick update character fields (direct, no AI)
    */
-  router.post('/:id/quick-update', requireAdmin, (req, res) => {
-    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-    if (!character) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
+  router.post('/:id/quick-update', requireUser, (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
 
     const allowedFields = [
-      'player_name', 'character_name', 'race', 'class', 'level',
+      'player_name', 'character_name', 'race', 'class', 'level', 'background',
       'strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma',
-      'hp', 'max_hp', 'ac', 'xp', 'gold',
+      'hp', 'max_hp', 'ac', 'xp', 'gold', 'spell_slots',
       'skills', 'spells', 'passives', 'feats', 'class_features',
       'appearance', 'backstory', 'initiative_bonus', 'image_url',
       'inspiration_points'
@@ -531,10 +530,35 @@ function createCharacterRoutes(deps) {
     const values = [];
 
     for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updates.push(`${field} = ?`);
-        values.push(req.body[field]);
+      if (req.body[field] === undefined) continue;
+      let value = req.body[field];
+
+      if (field === 'spell_slots') {
+        let parsed;
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed === '') {
+            parsed = {};
+          } else {
+            try {
+              parsed = JSON.parse(trimmed);
+            } catch (e) {
+              return res.status(400).json({ error: 'spell_slots must be valid JSON' });
+            }
+          }
+        } else if (value && typeof value === 'object') {
+          parsed = value;
+        } else {
+          return res.status(400).json({ error: 'spell_slots must be an object or JSON string' });
+        }
+        if (Array.isArray(parsed) || !parsed || typeof parsed !== 'object') {
+          return res.status(400).json({ error: 'spell_slots must be a JSON object keyed by slot level' });
+        }
+        value = JSON.stringify(normalizeSpellSlots(parsed));
       }
+
+      updates.push(`${field} = ?`);
+      values.push(value);
     }
 
     // Handle multiclass updates
