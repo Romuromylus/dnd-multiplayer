@@ -542,6 +542,16 @@ h1, h2, h3 {
   background: rgba(var(--accent-rgb), 0.08);
 }
 
+.logout-btn {
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.logout-btn:hover {
+  color: var(--accent);
+}
+
 /* Top nav tabs (desktop) */
 .top-nav-tabs { display: none; }
 

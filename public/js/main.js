@@ -407,9 +407,10 @@ async function initializeAuthenticatedApp() {
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) logoutBtn.style.display = '';
 
-    // Hide settings tab button for non-admins
+    // Hide settings tab + DM-only drawer tools for non-admins
     if (!user.is_admin) {
       document.querySelectorAll('[data-tab="settings"]').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.utility-menu').forEach(el => el.style.display = 'none');
     }
 
     if (!builderInitialized) {

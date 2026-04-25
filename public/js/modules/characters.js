@@ -357,6 +357,7 @@ export function renderCharactersList() {
 
 export function updateCharacterSelect() {
   const sessionCharacters = getState('sessionCharacters');
+  const user = getState('currentUser');
   const select = document.getElementById('action-character');
   if (!select) return;
 
@@ -369,6 +370,18 @@ export function updateCharacterSelect() {
   // Restore selection if the character is still in this session
   if (savedId && sessionCharacters.some(c => c.id === savedId)) {
     select.value = savedId;
+    return;
+  }
+
+  // No valid saved selection — auto-pick the user's own character so they
+  // see their POV instead of the omniscient "All POVs" Dungeon Master view.
+  if (user && sessionCharacters.length > 0) {
+    const ownChar = sessionCharacters.find(c => c.user_id === user.id);
+    const fallback = ownChar || (user.is_admin ? sessionCharacters[0] : null);
+    if (fallback) {
+      select.value = fallback.id;
+      localStorage.setItem('dnd-selected-character', fallback.id);
+    }
   }
 }
 
