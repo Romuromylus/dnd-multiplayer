@@ -193,8 +193,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
             const openingScene = aiService.extractAIMessage(data);
 
             if (openingScene) {
-              // Step 2: Convert to per-character POVs in parallel
-              const { POV_CONVERSION_PROMPT } = aiService;
+              // Step 2: Convert to per-character POVs in parallel (with retry)
               let parsedPOVs = {};
               if (characters.length > 0) {
                 // Build party roster so POV converter knows all character names
@@ -204,27 +203,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
                   return entry;
                 }).join('\n');
 
-                const povPromises = characters.map(async (c) => {
-                  try {
-                    let charContext = `${c.character_name}, ${c.race} ${c.class}`;
-                    if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
-                    if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
-
-                    let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
-                    userContent += `\n\nSCENE TO REWRITE:\n${openingScene}`;
-
-                    const povData = await aiService.callAI(aiConfig, [
-                      { role: 'system', content: POV_CONVERSION_PROMPT },
-                      { role: 'user', content: userContent }
-                    ], { maxTokens: 4096, temperature: 0.7 });
-                    const povText = aiService.extractAIMessage(povData);
-                    if (povText) return { name: c.character_name, pov: povText.trim() };
-                  } catch (e) {
-                    console.error(`Opening POV failed for ${c.character_name}:`, e.message);
-                  }
-                  return null;
-                });
-                const povResults = await Promise.all(povPromises);
+                const povResults = await Promise.all(characters.map(async (c) => {
+                  const pov = await aiService.generateCharacterPOV(aiConfig, c, openingScene, partyRoster);
+                  return pov ? { name: c.character_name, pov } : null;
+                }));
                 for (const r of povResults) {
                   if (r) parsedPOVs[r.name] = r.pov;
                 }
@@ -428,6 +410,82 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     console.log(`GM Nudge added to session ${sessionId}: "${message.substring(0, 50)}..."`);
     res.json({ success: true, message: 'GM message added. It will be included in the next AI response.' });
+  });
+
+  /**
+   * POST /api/sessions/:id/regenerate-pov
+   * Regenerate a missing per-character POV on a specific narration entry.
+   * Body: { index: <history index>, characterId: <character id> }
+   * Admin only — used to repair turns where one character's POV failed.
+   */
+  router.post('/:id/regenerate-pov', requireAdmin, async (req, res) => {
+    const sessionId = req.params.id;
+    const { index, characterId } = req.body || {};
+
+    if (typeof index !== 'number' || index < 0) {
+      return res.status(400).json({ error: 'Valid history index is required' });
+    }
+    if (!characterId) {
+      return res.status(400).json({ error: 'characterId is required' });
+    }
+
+    const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const history = JSON.parse(session.full_history || '[]');
+    if (index >= history.length) {
+      return res.status(400).json({ error: 'Index out of range' });
+    }
+    const entry = history[index];
+    if (!entry || entry.role !== 'assistant') {
+      return res.status(400).json({ error: 'Target entry is not a narration' });
+    }
+
+    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId);
+    if (!character) return res.status(404).json({ error: 'Character not found' });
+    if (!isCharacterInSession(sessionId, characterId)) {
+      return res.status(400).json({ error: 'Character is not in this session' });
+    }
+
+    const apiConfig = getActiveApiConfig();
+    if (!apiConfig || !apiConfig.api_key) {
+      return res.status(400).json({ error: 'No active API configuration' });
+    }
+
+    const sessionChars = getSessionCharacters(sessionId);
+    const partyRoster = sessionChars.map(c => {
+      let line = `- ${c.character_name}, ${c.race} ${c.class}`;
+      if (c.appearance) line += ` — ${c.appearance}`;
+      return line;
+    }).join('\n');
+
+    const aiConfig = {
+      endpoint: apiConfig.api_endpoint,
+      api_key: apiConfig.api_key,
+      model: apiConfig.api_model
+    };
+
+    try {
+      const pov = await aiService.generateCharacterPOV(
+        aiConfig, character, entry.content || '', partyRoster, session.story_summary || ''
+      );
+      if (!pov) {
+        return res.status(502).json({ error: 'POV generation failed after retry' });
+      }
+
+      entry.povs = entry.povs || {};
+      entry.povs[character.character_name] = pov;
+      history[index] = entry;
+      db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
+        .run(JSON.stringify(history), sessionId);
+
+      sendToSession(sessionId, 'session_updated', { id: sessionId });
+      console.log(`Regenerated POV for ${character.character_name} on session ${sessionId} index ${index}`);
+      res.json({ success: true, characterName: character.character_name, povLength: pov.length });
+    } catch (err) {
+      console.error('regenerate-pov error:', err);
+      res.status(500).json({ error: 'Failed to regenerate POV: ' + err.message });
+    }
   });
 
   /**

@@ -902,6 +902,24 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .pov-toggle-btn { font-size: 14px !important; }
 
+.pov-badge-warn {
+  background: linear-gradient(135deg, #c46a2a, #8a3f1a) !important;
+  color: #fff !important;
+}
+
+.pov-regen-btn {
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  color: var(--accent);
+  font-size: 0.75em;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-right: 4px;
+}
+.pov-regen-btn:hover { background: rgba(var(--accent-rgb), 0.22); }
+.pov-regen-btn:disabled { opacity: 0.5; cursor: wait; }
+
 .pov-section {
   margin-bottom: 12px;
   padding: 12px 16px;

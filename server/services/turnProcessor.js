@@ -322,7 +322,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     .trim();
 
   // === POV CONVERSION: Convert 3rd-person scene to per-character 2nd-person POVs ===
-  const { POV_CONVERSION_PROMPT } = require('./aiService');
+  const { generateCharacterPOV } = require('./aiService');
   let parsedPOVs = {};
   if (characters.length > 0) {
     console.log(`Converting scene to POV for ${characters.length} characters...`);
@@ -336,35 +336,10 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 
     const storySummary = session.story_summary || '';
 
-    const povPromises = characters.map(async (c) => {
-      try {
-        let charContext = `${c.character_name}, ${c.race} ${c.class}`;
-        if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
-        if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
-
-        let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
-        if (storySummary) {
-          userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
-        }
-        userContent += `\n\nSCENE TO REWRITE:\n${cleanedResponse}`;
-
-        const povMessages = [
-          { role: 'system', content: POV_CONVERSION_PROMPT },
-          { role: 'user', content: userContent }
-        ];
-        const povData = await callAI(aiCallConfig, povMessages, { maxTokens: 8192, temperature: 0.7 });
-        const povText = extractAIMessage(povData);
-        if (povText) {
-          console.log(`POV for ${c.character_name}: ${povText.length} chars`);
-          return { name: c.character_name, pov: povText.trim() };
-        }
-      } catch (povError) {
-        console.error(`POV conversion failed for ${c.character_name}:`, povError.message);
-      }
-      return null;
-    });
-
-    const povResults = await Promise.all(povPromises);
+    const povResults = await Promise.all(characters.map(async (c) => {
+      const pov = await generateCharacterPOV(aiCallConfig, c, cleanedResponse, partyRoster, storySummary);
+      return pov ? { name: c.character_name, pov } : null;
+    }));
     for (const result of povResults) {
       if (result) parsedPOVs[result.name] = result.pov;
     }
@@ -674,7 +649,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     .trim();
 
   // === POV CONVERSION: Convert 3rd-person scene to per-character 2nd-person POVs ===
-  const { POV_CONVERSION_PROMPT } = require('./aiService');
+  const { generateCharacterPOV } = require('./aiService');
   let parsedPOVs = {};
   if (characters.length > 0) {
     console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
@@ -694,37 +669,10 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
       api_key: apiConfig.api_key,
       model: apiConfig.api_model
     };
-    const povPromises = characters.map(async (c) => {
-      try {
-        let charContext = `${c.character_name}, ${c.race} ${c.class}`;
-        if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
-        if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
-
-        let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
-        if (storySummary) {
-          userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
-        }
-        userContent += `\n\nSCENE TO REWRITE:\n${cleanedResponse}`;
-
-        const povMessages = [
-          { role: 'system', content: POV_CONVERSION_PROMPT },
-          { role: 'user', content: userContent }
-        ];
-        const { callAI: callAIForPOV } = require('./aiService');
-        const povData = await callAIForPOV(povConfig, povMessages, { maxTokens: 8192, temperature: 0.7 });
-        const { extractAIMessage: extractPOV } = require('./aiService');
-        const povText = extractPOV(povData);
-        if (povText) {
-          console.log(`POV for ${c.character_name}: ${povText.length} chars`);
-          return { name: c.character_name, pov: povText.trim() };
-        }
-      } catch (povError) {
-        console.error(`POV conversion failed for ${c.character_name}:`, povError.message);
-      }
-      return null;
-    });
-
-    const povResults = await Promise.all(povPromises);
+    const povResults = await Promise.all(characters.map(async (c) => {
+      const pov = await generateCharacterPOV(povConfig, c, cleanedResponse, partyRoster, storySummary);
+      return pov ? { name: c.character_name, pov } : null;
+    }));
     for (const result of povResults) {
       if (result) parsedPOVs[result.name] = result.pov;
     }

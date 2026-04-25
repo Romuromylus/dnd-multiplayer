@@ -27,7 +27,7 @@ import {
   rollActionDice, getCurrentDiceRoll,
   updateInspirationDisplay,
   displayChoices, selectChoice, dismissChoices, toggleChoicesDrawer, generateChoices,
-  togglePOVView, reRenderStory, retryTurn, restoreDiceState
+  togglePOVView, regeneratePOV, reRenderStory, retryTurn, restoreDiceState
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings,
@@ -113,6 +113,7 @@ window.dismissChoices = dismissChoices;
 window.toggleChoicesDrawer = toggleChoicesDrawer;
 window.generateChoices = generateChoices;
 window.togglePOVView = togglePOVView;
+window.regeneratePOV = regeneratePOV;
 window.retryTurn = retryTurn;
 
 // Settings

@@ -437,6 +437,10 @@ export function renderStoryHistory(history, indexOffset = 0) {
       // Check for POV narrations
       const hasPOVs = entry.povs && Object.keys(entry.povs).length > 0;
       const selectedCharName = getSelectedCharacterName();
+      const selectedCharId = document.getElementById('action-character')?.value || '';
+      const currentUser = getState('currentUser');
+      const isAdmin = !!(currentUser && currentUser.is_admin);
+      const povMissing = hasPOVs && selectedCharName && !entry.povs[selectedCharName];
 
       if (hasPOVs && selectedCharName && entry.povs[selectedCharName]) {
         // Render only the selected character's POV
@@ -484,6 +488,30 @@ export function renderStoryHistory(history, indexOffset = 0) {
                 <div class="pov-section-content">${formatContent(content)}</div>
               </div>
             `).join('')}
+          </div>
+        `;
+      } else if (povMissing) {
+        // POVs were generated for this turn but the selected character's POV is
+        // missing. Show the original 3rd-person scene as a fallback (instead of
+        // falling through to a misleading "Dungeon Master" header) and expose a
+        // Regenerate POV button to admins so the borked turn can be repaired
+        // without re-rolling the whole turn.
+        const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
+        const ttsContent = btoa(encodeURIComponent(entry.content));
+        const regenBtn = isAdmin && selectedCharId
+          ? `<button class="pov-regen-btn" onclick="regeneratePOV(${globalIndex}, '${escapeHtml(selectedCharId)}')" title="Regenerate ${escapeHtml(selectedCharName)}\u2019s POV for this turn">\uD83D\uDD04 POV</button>`
+          : '';
+        html += `
+          <div class="story-entry assistant narration pov-narration pov-fallback" data-index="${globalIndex}">
+            <div class="narration-header">
+              <div class="role">Your Story <span class="pov-badge pov-badge-warn">${escapeHtml(selectedCharName)}\u2019s POV unavailable \u2014 showing shared scene</span></div>
+              <div class="narration-controls">
+                ${regenBtn}
+                <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
+                <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
+              </div>
+            </div>
+            <div class="content">${formatContent(entry.content)}</div>
           </div>
         `;
       } else {
@@ -551,6 +579,28 @@ function getSelectedCharacterName() {
   const allChars = getState('characters');
   const char = sessionChars.find(c => c.id === charSelect.value) || allChars.find(c => c.id === charSelect.value);
   return char ? char.character_name : null;
+}
+
+/**
+ * Admin: regenerate a missing per-character POV on a turn that was rendered
+ * with the "POV unavailable" fallback. Calls the server endpoint and reloads
+ * the session on success so the new POV renders.
+ */
+export async function regeneratePOV(index, characterId) {
+  const currentSession = getState('currentSession');
+  if (!currentSession) return;
+  const btn = document.querySelector(`.story-entry[data-index="${index}"] .pov-regen-btn`);
+  const originalLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api(`/api/sessions/${currentSession.id}/regenerate-pov`, 'POST', { index, characterId });
+    showNotification('POV regenerated');
+    await loadSession(currentSession.id);
+  } catch (error) {
+    console.error('Regenerate POV failed:', error);
+    showNotification('Regenerate POV failed: ' + (error.message || 'unknown error'));
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
 }
 
 /**

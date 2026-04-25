@@ -544,6 +544,45 @@ function getOpenAIApiKey(db) {
   return null;
 }
 
+/**
+ * Generate a per-character POV with one retry on failure or empty response.
+ * Returns trimmed POV text on success, or null if both attempts fail.
+ *
+ * @param {Object} aiConfig - { endpoint, api_key, model }
+ * @param {Object} character - { character_name, race, class, appearance?, backstory? }
+ * @param {string} sceneContent - 3rd-person narration to rewrite
+ * @param {string} partyRoster - pre-built party roster string
+ * @param {string} storySummary - optional story-so-far context
+ * @returns {Promise<string|null>}
+ */
+async function generateCharacterPOV(aiConfig, character, sceneContent, partyRoster, storySummary = '') {
+  let charContext = `${character.character_name}, ${character.race} ${character.class}`;
+  if (character.appearance) charContext += `. Appearance: ${character.appearance}`;
+  if (character.backstory) charContext += `. Backstory: ${character.backstory}`;
+
+  let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
+  if (storySummary) userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
+  userContent += `\n\nSCENE TO REWRITE:\n${sceneContent}`;
+
+  const messages = [
+    { role: 'system', content: POV_CONVERSION_PROMPT },
+    { role: 'user', content: userContent }
+  ];
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const data = await callAI(aiConfig, messages, { maxTokens: 8192, temperature: 0.7 });
+      const text = extractAIMessage(data);
+      if (text && text.trim()) return text.trim();
+      console.warn(`POV attempt ${attempt} for ${character.character_name} returned empty`);
+    } catch (err) {
+      console.warn(`POV attempt ${attempt} for ${character.character_name} failed: ${err.message}`);
+    }
+  }
+  console.error(`POV generation FAILED for ${character.character_name} after 2 attempts`);
+  return null;
+}
+
 module.exports = {
   getActiveApiConfig,
   callAI,
@@ -554,6 +593,7 @@ module.exports = {
   testConnection,
   getOpenAIApiKey,
   detectProvider,
+  generateCharacterPOV,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
   POV_CONVERSION_PROMPT,
