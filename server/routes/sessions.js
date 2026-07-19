@@ -23,7 +23,6 @@ const tagParser = require('../services/tagParser');
  * @param {Function} deps.calculateTotalAC - AC calculator
  * @param {Function} deps.updateCharacterAC - AC updater (takes db, charId, acEffects)
  * @param {Function} deps.compactHistory - History compaction function
- * @param {string} deps.AI_RESPONSE_PREFIX - Response prefix for AI
  * @param {Function} deps.getSessionCharacters - Get session characters (takes db, sessionId)
  * @returns {express.Router}
  */
@@ -38,7 +37,6 @@ function createSessionRoutes(deps) {
     calculateTotalAC,
     updateCharacterAC,
     compactHistory,
-    AI_RESPONSE_PREFIX,
     getSessionCharacters: getSessionCharactersFn
   } = deps;
 

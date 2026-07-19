@@ -20,7 +20,7 @@ function initializeRoutes(deps) {
     processingSessions, getActiveApiConfig, processAITurn,
     DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
     parseAcEffects, calculateTotalAC, updateCharacterAC,
-    compactHistory, AI_RESPONSE_PREFIX, getSessionCharacters
+    compactHistory, getSessionCharacters
   } = deps;
 
   return {
@@ -37,7 +37,6 @@ function initializeRoutes(deps) {
       calculateTotalAC,
       updateCharacterAC,
       compactHistory,
-      AI_RESPONSE_PREFIX,
       getSessionCharacters
     }),
     tts: createTTSRoutes({ db, auth, getOpenAIApiKey }),

@@ -106,7 +106,6 @@ const turnDeps = {
   db, io, aiService, tagParser,
   getActiveApiConfig,
   DEFAULT_SYSTEM_PROMPT: aiService.DEFAULT_SYSTEM_PROMPT,
-  AI_RESPONSE_PREFIX: aiService.AI_RESPONSE_PREFIX,
   processingSessions,
   parseAcEffects, calculateTotalAC, updateCharacterAC,
   emitToSession,
@@ -151,7 +150,6 @@ const routes = initializeRoutes({
   getOpenAIApiKey,
   parseAcEffects, calculateTotalAC, updateCharacterAC,
   compactHistory,
-  AI_RESPONSE_PREFIX: aiService.AI_RESPONSE_PREFIX,
   getSessionCharacters
 });
 

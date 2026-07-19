@@ -129,7 +129,6 @@ Generate the structured summary now:`;
  * @param {Object} deps.tagParser - Tag parser service
  * @param {Function} deps.getActiveApiConfig - Get active API config
  * @param {string} deps.DEFAULT_SYSTEM_PROMPT - Default DM system prompt
- * @param {string} deps.AI_RESPONSE_PREFIX - Response prefix to strip
  * @param {Set} deps.processingSessions - Sessions currently being processed
  * @param {Function} deps.parseAcEffects - AC effects parser
  * @param {Function} deps.calculateTotalAC - AC calculator
@@ -143,7 +142,7 @@ Generate the structured summary now:`;
 async function processAITurn(deps, sessionId, pendingActions, characters) {
   const {
     db, io, aiService, tagParser,
-    getActiveApiConfig, DEFAULT_SYSTEM_PROMPT, AI_RESPONSE_PREFIX,
+    getActiveApiConfig, DEFAULT_SYSTEM_PROMPT,
     processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
     emitToSession,
     applyAllTags
@@ -459,7 +458,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 async function streamAITurn(deps, sessionId, pendingActions, characters) {
   const {
     db, io, aiService, tagParser,
-    getActiveApiConfig, DEFAULT_SYSTEM_PROMPT, AI_RESPONSE_PREFIX,
+    getActiveApiConfig, DEFAULT_SYSTEM_PROMPT,
     processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
     emitToSession,
     applyAllTags

@@ -8,11 +8,6 @@ const dns = require('dns').promises;
 const net = require('net');
 
 /**
- * Response prefix for session AI - helps with immersion, stripped from final output
- */
-const AI_RESPONSE_PREFIX = "All right! Let's get to writing!\n\n";
-
-/**
  * Detect provider from endpoint URL
  * @param {string} endpoint - API endpoint URL
  * @returns {string} 'anthropic' or 'openai'
@@ -596,6 +591,5 @@ module.exports = {
   generateCharacterPOV,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
-  POV_CONVERSION_PROMPT,
-  AI_RESPONSE_PREFIX
+  POV_CONVERSION_PROMPT
 };
