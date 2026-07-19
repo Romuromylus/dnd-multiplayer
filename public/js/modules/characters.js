@@ -49,8 +49,6 @@ export function getSectionState(charId, section) {
 }
 
 export function toggleSection(charId, section) {
-  console.log('toggleSection called:', { charId, section });
-
   const states = getState('sectionExpandedStates');
   if (!states[charId]) states[charId] = {};
   states[charId][section] = !getSectionState(charId, section);
@@ -60,7 +58,6 @@ export function toggleSection(charId, section) {
   // Update ALL matching sections visually
   const selector = `.section-collapsible[data-char="${charId}"][data-section="${section}"]`;
   const sectionEls = document.querySelectorAll(selector);
-  console.log('Found elements:', sectionEls.length);
 
   sectionEls.forEach(sectionEl => {
     sectionEl.classList.toggle('expanded', states[charId][section]);
@@ -69,8 +66,6 @@ export function toggleSection(charId, section) {
       icon.textContent = states[charId][section] ? '\u25BC' : '\u25B6';
     }
   });
-
-  console.log('Section toggled, expanded:', states[charId][section]);
 }
 
 export function expandAllSections(charId) {
@@ -111,19 +106,18 @@ export function attachSectionToggleListeners() {
   });
 }
 
-// Legacy function kept for compatibility
-function handleSectionToggleClick(e) {
-  e.stopPropagation();
-  const charId = e.currentTarget.dataset.toggleChar;
-  const section = e.currentTarget.dataset.toggleSection;
-  if (charId && section) {
-    toggleSection(charId, section);
-  }
-}
-
 // ============================================
 // Spell slots formatting
 // ============================================
+
+function ordinalSuffix(n) {
+  const num = parseInt(n, 10);
+  const j = num % 10, k = num % 100;
+  if (j === 1 && k !== 11) return num + 'st';
+  if (j === 2 && k !== 12) return num + 'nd';
+  if (j === 3 && k !== 13) return num + 'rd';
+  return num + 'th';
+}
 
 export function formatSpellSlots(spellSlots) {
   const levels = Object.keys(spellSlots).sort((a, b) => parseInt(a) - parseInt(b));
@@ -133,8 +127,8 @@ export function formatSpellSlots(spellSlots) {
     const slot = spellSlots[lvl];
     const max = slot.max || 0;
     const current = Math.max(0, Math.min(max, slot.current ?? max));
-    return `${lvl}st: ${current}/${max}`;
-  }).join(' | ').replace(/1st/g, '1st').replace(/2st/g, '2nd').replace(/3st/g, '3rd');
+    return `${ordinalSuffix(lvl)}: ${current}/${max}`;
+  }).join(' | ');
 }
 
 export function formatSpellSlotsShort(spellSlots) {
@@ -472,18 +466,6 @@ export function updatePartyList() {
   `}).join('');
 
   attachSectionToggleListeners();
-}
-
-export function toggleInventory(charId) {
-  const list = document.getElementById(`inventory-${charId}`);
-  if (!list) return;
-  const isHidden = list.style.display === 'none';
-  list.style.display = isHidden ? 'block' : 'none';
-  const card = list.closest('.character-card');
-  if (card) {
-    const toggle = card.querySelector('.inventory-toggle');
-    if (toggle) toggle.textContent = isHidden ? '-' : '+';
-  }
 }
 
 // ============================================

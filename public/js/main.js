@@ -14,7 +14,7 @@ import {
   toggleSection, expandAllSections, collapseAllSections,
   startCharacterCreation, sendCharacterMessage, resetCharacterCreation,
   loadSectionStates, attachSectionToggleListeners,
-  toggleInventory, formatMulticlass,
+  formatMulticlass,
   initAvatarUpload
 } from './modules/characters.js';
 import {
@@ -88,7 +88,6 @@ window.collapseAllSections = collapseAllSections;
 window.startCharacterCreation = startCharacterCreation;
 window.sendCharacterMessage = sendCharacterMessage;
 window.resetCharacterCreation = resetCharacterCreation;
-window.toggleInventory = toggleInventory;
 
 // Sessions
 window.loadSession = loadSession;
@@ -189,7 +188,6 @@ document.addEventListener('click', function(e) {
       const charId = parent.dataset.char;
       const section = parent.dataset.section;
       if (charId && section) {
-        console.log('Global handler caught click on section:', { charId, section });
         e.preventDefault();
         e.stopPropagation();
         toggleSection(charId, section);

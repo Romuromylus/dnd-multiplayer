@@ -49,8 +49,6 @@ const state = {
   pendingChoices: null,
 };
 
-const subscribers = {};
-
 export function getState(key) {
   if (key) return state[key];
   return { ...state };
@@ -58,15 +56,4 @@ export function getState(key) {
 
 export function setState(updates) {
   Object.assign(state, updates);
-  for (const [key, value] of Object.entries(updates)) {
-    (subscribers[key] || []).forEach(cb => cb(value, key));
-  }
-}
-
-export function subscribe(key, callback) {
-  if (!subscribers[key]) subscribers[key] = [];
-  subscribers[key].push(callback);
-  return () => {
-    subscribers[key] = subscribers[key].filter(cb => cb !== callback);
-  };
 }

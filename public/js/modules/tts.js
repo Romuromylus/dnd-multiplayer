@@ -30,8 +30,6 @@ class TTSManager {
   }
 
   async speak(text, buttonEl = null) {
-    console.log('TTSManager.speak() called with text length:', text?.length);
-
     this.stop();
 
     this.currentText = text;
@@ -39,12 +37,9 @@ class TTSManager {
     this.activeButton = buttonEl;
 
     try {
-      console.log('Fetching TTS info...');
       const info = await api('/api/tts/info', 'POST', { text });
-      console.log('TTS info received:', info);
       this.totalChunks = info.totalChunks;
 
-      console.log(`TTS: Starting playback of ${this.totalChunks} chunks`);
       await this.playChunk(0);
     } catch (error) {
       console.error('TTS Error:', error);
@@ -54,10 +49,7 @@ class TTSManager {
   }
 
   async playChunk(index) {
-    console.log(`TTSManager.playChunk(${index}) called, totalChunks: ${this.totalChunks}`);
-
     if (index >= this.totalChunks || !this.currentText) {
-      console.log('Playback complete or no text');
       this.resetState();
       return;
     }
@@ -68,7 +60,6 @@ class TTSManager {
     this.updateButtonState();
 
     try {
-      console.log(`Fetching audio for chunk ${index}...`);
       const response = await fetch('/api/tts/audio', {
         method: 'POST',
         credentials: 'same-origin',
@@ -83,28 +74,23 @@ class TTSManager {
         })
       });
 
-      console.log('Audio fetch response:', response.status, response.ok);
-
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to generate audio');
       }
 
       const audioBlob = await response.blob();
-      console.log('Audio blob received, size:', audioBlob.size, 'type:', audioBlob.type);
 
       if (audioBlob.size === 0) {
         throw new Error('Received empty audio blob');
       }
 
       const audioUrl = URL.createObjectURL(audioBlob);
-      console.log('Audio URL created:', audioUrl);
 
       this.currentAudio = new Audio(audioUrl);
       this.currentAudio.volume = 1.0;
 
       this.currentAudio.onended = () => {
-        console.log('Audio chunk ended');
         URL.revokeObjectURL(audioUrl);
         this.playChunk(index + 1);
       };
@@ -116,14 +102,8 @@ class TTSManager {
         showNotification('Audio playback failed - check console for details');
       };
 
-      this.currentAudio.oncanplaythrough = () => {
-        console.log('Audio can play through, duration:', this.currentAudio.duration);
-      };
-
-      console.log('Starting audio playback...');
       try {
         await this.currentAudio.play();
-        console.log('Audio playback started successfully');
       } catch (playError) {
         console.error('Play error:', playError);
         showNotification('Click anywhere on the page first, then try TTS again (autoplay policy)');
@@ -241,10 +221,7 @@ export const ttsManager = new TTSManager();
 
 // TTS click handler for play buttons
 export function handleTTSClick(buttonEl) {
-  console.log('TTS button clicked', buttonEl);
-
   const encodedContent = buttonEl.dataset.ttsContent;
-  console.log('Encoded content:', encodedContent ? encodedContent.substring(0, 50) + '...' : 'NONE');
 
   if (!encodedContent) {
     showNotification('TTS Error: No content found');
@@ -253,7 +230,6 @@ export function handleTTSClick(buttonEl) {
 
   try {
     const text = decodeURIComponent(atob(encodedContent));
-    console.log('Decoded text:', text.substring(0, 100) + '...');
     ttsManager.togglePlayback(text, buttonEl);
   } catch (e) {
     console.error('TTS decode error:', e);
