@@ -318,7 +318,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     const storySummary = session.story_summary || '';
 
     const povResults = await Promise.all(characters.map(async (c) => {
-      const pov = await generateCharacterPOV(aiCallConfig, c, cleanedResponse, partyRoster, storySummary);
+      const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary);
       return pov ? { name: c.character_name, pov } : null;
     }));
     for (const result of povResults) {
