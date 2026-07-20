@@ -6,6 +6,7 @@
 const logger = require('../lib/logger');
 const dns = require('dns').promises;
 const net = require('net');
+const { estimateTokens } = require('../lib/tokens');
 
 /**
  * Detect provider from endpoint URL
@@ -270,16 +271,6 @@ function extractAIMessage(data) {
     return data.content;
   }
   return '';
-}
-
-/**
- * Estimate token count for text
- * @param {string} text - Text to estimate
- * @returns {number} Estimated token count
- */
-function estimateTokens(text) {
-  if (!text) return 0;
-  return Math.ceil(text.length / 4);
 }
 
 function isPrivateOrLocalIp(ip) {

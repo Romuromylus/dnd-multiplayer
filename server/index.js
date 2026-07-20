@@ -89,14 +89,8 @@ function emitToSession(sessionId, event, payload) {
 // ============================================
 function getActiveApiConfig() {
   const config = db.prepare('SELECT * FROM api_configs WHERE is_active = 1').get();
-  if (config) {
-    return {
-      api_endpoint: config.endpoint,
-      api_key: config.api_key,
-      api_model: config.model
-    };
-  }
-  return null;
+  if (!config) return null;
+  return { endpoint: config.endpoint, api_key: config.api_key, model: config.model };
 }
 
 // ============================================

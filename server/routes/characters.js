@@ -295,7 +295,7 @@ function createCharacterRoutes(deps) {
       : `Generate a brief backstory (3-4 sentences) for a D&D character: ${context.character_name || 'unnamed'}, a ${context.race || 'human'} ${context.class || 'adventurer'} with the ${context.background || 'folk hero'} background. Include motivations and a key formative event. Be creative.`;
 
     try {
-      const config = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const config = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
       const data = await aiService.callAI(config, [
         { role: 'system', content: 'You are a creative D&D character description writer. Write concise, evocative descriptions. Output ONLY the description text, no labels or formatting.' },
         { role: 'user', content: prompt }
@@ -728,7 +728,7 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
         ...(messages || [])
       ];
 
-      const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
       const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
@@ -903,7 +903,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
         ...(messages || [])
       ];
 
-      const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
       const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
@@ -1041,7 +1041,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
     const CHARACTER_CREATION_PROMPT = aiService.CHARACTER_CREATION_PROMPT;
 
     try {
-      const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
       const allMessages = [
         { role: 'system', content: CHARACTER_CREATION_PROMPT },
         ...(messages || [])

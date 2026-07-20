@@ -5,19 +5,11 @@
 
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../lib/logger');
-
-/**
- * Estimate token count for text (rough approximation: ~4 chars per token)
- * @param {string} text - Text to estimate
- * @returns {number} Estimated token count
- */
-function estimateTokens(text) {
-  return Math.ceil(text.length / 4);
-}
+const { estimateTokens } = require('../lib/tokens');
 
 /**
  * Compact history into a structured summary using AI
- * @param {Object} apiConfig - Active API config {api_endpoint, api_key, api_model}
+ * @param {Object} apiConfig - Active API config {endpoint, api_key, model}
  * @param {string} existingSummary - Current story summary
  * @param {Array} history - History entries to compact
  * @param {Array} characters - Array of character objects
@@ -98,12 +90,7 @@ Generate the structured summary now:`;
   try {
     // Use aiService.callAI to support both OpenAI and Anthropic providers
     const { callAI } = require('./aiService');
-    const config = {
-      endpoint: apiConfig.api_endpoint,
-      api_key: apiConfig.api_key,
-      model: apiConfig.api_model
-    };
-    const data = await callAI(config, [{ role: 'user', content: compactPrompt }], { maxTokens: 4000 });
+    const data = await callAI(apiConfig, [{ role: 'user', content: compactPrompt }], { maxTokens: 4000 });
     const summary = extractAIMessage(data);
 
     if (!summary) {
@@ -296,12 +283,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 
   // Call AI API (supports both OpenAI and Anthropic via aiService)
   const { callAI } = require('./aiService');
-  const aiCallConfig = {
-    endpoint: apiConfig.api_endpoint,
-    api_key: apiConfig.api_key,
-    model: apiConfig.api_model
-  };
-  const data = await callAI(aiCallConfig, messages, { maxTokens: 64000 });
+  const data = await callAI(apiConfig, messages, { maxTokens: 64000 });
   let aiResponse = extractAIMessage(data);
 
   if (!aiResponse) {
@@ -477,7 +459,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
 
   // Check if the provider/endpoint supports streaming
   // For now, we assume all providers support streaming
-  const provider = detectProvider ? detectProvider(apiConfig.api_endpoint) : 'openai';
+  const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
 
   // Get general settings
   const settings = {};
@@ -612,15 +594,9 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   console.log(`Total messages to AI: ${messages.length}`);
 
   // Stream the AI response
-  const streamConfig = {
-    endpoint: apiConfig.api_endpoint,
-    api_key: apiConfig.api_key,
-    model: apiConfig.api_model
-  };
-
   let aiResponse = '';
   try {
-    for await (const chunk of callAIStream(streamConfig, messages, { maxTokens: 64000 })) {
+    for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: 64000 })) {
       aiResponse += chunk;
       // Emit each chunk to clients for real-time display
       sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
@@ -663,13 +639,8 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
 
     const storySummary = session.story_summary || '';
 
-    const povConfig = {
-      endpoint: apiConfig.api_endpoint,
-      api_key: apiConfig.api_key,
-      model: apiConfig.api_model
-    };
     const povResults = await Promise.all(characters.map(async (c) => {
-      const pov = await generateCharacterPOV(povConfig, c, cleanedResponse, partyRoster, storySummary);
+      const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary);
       return pov ? { name: c.character_name, pov } : null;
     }));
     for (const result of povResults) {

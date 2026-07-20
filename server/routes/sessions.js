@@ -180,7 +180,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
           const openingSystemPrompt = `You are the Dungeon Master for a multiplayer D&D 5e game. Write vivid, grounded prose — show without telling. Use all five senses. Give NPCs distinct voices. You may use HTML/inline CSS for diegetic objects (signs, documents, etc). No code blocks.`;
 
-          const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+          const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
 
           try {
             // Step 1: Generate unified 3rd-person opening scene
@@ -458,9 +458,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     }).join('\n');
 
     const aiConfig = {
-      endpoint: apiConfig.api_endpoint,
+      endpoint: apiConfig.endpoint,
       api_key: apiConfig.api_key,
-      model: apiConfig.api_model
+      model: apiConfig.model
     };
 
     try {
@@ -503,9 +503,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     if (!rawConfig) return res.status(400).json({ error: 'No active API configuration' });
     // Map to the format callAI expects
     const config = {
-      endpoint: rawConfig.api_endpoint || rawConfig.endpoint,
+      endpoint: rawConfig.endpoint,
       api_key: rawConfig.api_key,
-      model: rawConfig.api_model || rawConfig.model
+      model: rawConfig.model
     };
 
     const characters = getSessionCharacters(sessionId);
@@ -824,9 +824,9 @@ Generate ONLY a brief action description.`;
         return res.status(500).json({ error: 'No active API configuration' });
       }
       const config = {
-        endpoint: rawConfig.api_endpoint || rawConfig.endpoint,
+        endpoint: rawConfig.endpoint,
         api_key: rawConfig.api_key,
-        model: rawConfig.api_model || rawConfig.model
+        model: rawConfig.model
       };
 
       const aiData = await aiService.callAI(config, [{ role: 'user', content: prompt }], { maxTokens: 300, temperature: 0.7 });
