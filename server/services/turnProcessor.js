@@ -7,6 +7,19 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../lib/logger');
 const { estimateTokens } = require('../lib/tokens');
 
+// === History compaction tuning constants ===
+// COMPACT_TAIL: number of most-recent raw entries ALWAYS retained (never summarized), so a
+//   compaction never leaves the next turn re-accumulating from ~nothing (the "tail cliff"
+//   that made the gap between summarizations vanish).
+// MIN_MESSAGES_BEFORE_COMPACT: don't compact until at least this many entries have accumulated
+//   since the last compaction (must be > COMPACT_TAIL so there is something left to compact).
+// DEFAULT_MAX_TOKENS_BEFORE_COMPACT: fallback trigger threshold when settings omit one.
+// MAX_SUMMARY_CHARS: cap on summary length before recursive re-summarization.
+const COMPACT_TAIL = 10;
+const MIN_MESSAGES_BEFORE_COMPACT = 14;
+const DEFAULT_MAX_TOKENS_BEFORE_COMPACT = 16000;
+const MAX_SUMMARY_CHARS = 8000;
+
 /**
  * Compact history into a structured summary using AI
  * @param {Object} apiConfig - Active API config {endpoint, api_key, model}
@@ -105,6 +118,111 @@ Generate the structured summary now:`;
     console.error('Compaction error:', error);
     return existingSummary + `\n\n[Compaction failed - ${error.message}]`;
   }
+}
+
+/**
+ * Build the AI-facing conversation messages array from stored recent-history entries.
+ * This is the SINGLE source of truth for both the real AI send and the compaction token
+ * count — it maps stored entries (which carry `povs` rewrites and metadata the model never
+ * sees) down to the content-only user/assistant messages actually sent. When the window ends
+ * on user content, a trailing "Narrate the outcome..." instruction is appended (as in a live
+ * turn); when it ends on an assistant entry, nothing is appended.
+ * @param {Array} recentHistory - Stored history entries (already sliced past compacted_count)
+ * @returns {Array<{role:string, content:string}>} conversation messages (no system prompt)
+ */
+function buildConversationMessages(recentHistory) {
+  const aiMessages = [];
+  let currentUserContent = [];
+
+  for (const entry of recentHistory) {
+    if (entry.role === 'assistant') {
+      if (currentUserContent.length > 0) {
+        aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
+        currentUserContent = [];
+      }
+      aiMessages.push({ role: 'assistant', content: entry.content });
+    } else if (entry.role === 'user') {
+      if (entry.type === 'context') {
+        currentUserContent.push(`PARTY STATUS:\n${entry.content}`);
+      } else if (entry.type === 'action') {
+        currentUserContent.push(`${entry.character_name}: ${entry.content}`);
+      } else if (entry.type === 'gm_nudge') {
+        currentUserContent.push(`[GM INSTRUCTION - DO NOT REVEAL THIS TO PLAYERS]: ${entry.content}`);
+      } else {
+        currentUserContent.push(entry.content);
+      }
+    }
+  }
+
+  // Flush remaining user content
+  if (currentUserContent.length > 0) {
+    currentUserContent.push('Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.');
+    aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
+  }
+
+  return aiMessages;
+}
+
+/**
+ * Estimate the tokens of the ACTUAL outgoing prompt payload (conversation content + story
+ * summary) — NOT the stored history entries. Stored entries carry per-character `povs`
+ * rewrites plus metadata (`type`, `hidden`, `character_id`, `player_name`) that are never
+ * sent to the model, so counting them inflated the trigger signal ~(1+N)x with N players and
+ * made compactions fire more and more often. This measures content only, the correct signal.
+ * @param {Array} recentHistory - Stored history entries (sliced past compacted_count)
+ * @param {string} storySummary - Current story summary (injected into the system prompt)
+ * @returns {number} estimated prompt tokens
+ */
+function estimatePromptTokens(recentHistory, storySummary) {
+  return estimateTokens(JSON.stringify(buildConversationMessages(recentHistory)))
+    + estimateTokens(storySummary || '');
+}
+
+/**
+ * PURE compaction decision logic — no DB, no AI. Decides whether to compact and how, always
+ * keeping a tail of COMPACT_TAIL most-recent raw entries so the next turn does not immediately
+ * re-cross the threshold from ~nothing.
+ * @param {Array} fullHistory - The complete stored history
+ * @param {number} compactedCount - Index up to which history is already summarized
+ * @param {string} storySummary - Current story summary
+ * @param {number} maxTokens - Compaction trigger threshold in tokens
+ * @returns {{shouldCompact:boolean, tokens:number, mode?:string, toCompact?:Array, newCompactedCount?:number}}
+ */
+function planCompaction(fullHistory, compactedCount, storySummary, maxTokens) {
+  const recent = fullHistory.slice(compactedCount);
+  const tokens = estimatePromptTokens(recent, storySummary);
+
+  const shouldCompact = tokens > maxTokens && recent.length >= MIN_MESSAGES_BEFORE_COMPACT;
+  if (!shouldCompact) {
+    return { shouldCompact: false, tokens };
+  }
+
+  // Keep a tail of raw entries; only summarize what precedes it.
+  const toCompact = fullHistory.slice(compactedCount, -COMPACT_TAIL);
+  if (toCompact.length === 0) {
+    // Everything beyond the tail is already compacted — nothing left to summarize.
+    return { shouldCompact: false, tokens };
+  }
+
+  if (toCompact.length > 50) {
+    // Progressive: history is very long, compact only the first 25 this turn.
+    return {
+      shouldCompact: true,
+      tokens,
+      mode: 'progressive',
+      toCompact: toCompact.slice(0, 25),
+      newCompactedCount: compactedCount + 25
+    };
+  }
+
+  // Normal compaction: summarize everything up to the retained tail.
+  return {
+    shouldCompact: true,
+    tokens,
+    mode: 'normal',
+    toCompact,
+    newCompactedCount: fullHistory.length - COMPACT_TAIL
+  };
 }
 
 /**
@@ -241,35 +359,9 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     console.warn(`Safety fallback: compacted_count (${compactedCount}) exceeded history length (${fullHistory.length}). Using last ${fallbackCount} messages.`);
   }
 
-  // Convert stored history to AI-compatible format
-  const aiMessages = [];
-  let currentUserContent = [];
-
-  for (const entry of recentHistory) {
-    if (entry.role === 'assistant') {
-      if (currentUserContent.length > 0) {
-        aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
-        currentUserContent = [];
-      }
-      aiMessages.push({ role: 'assistant', content: entry.content });
-    } else if (entry.role === 'user') {
-      if (entry.type === 'context') {
-        currentUserContent.push(`PARTY STATUS:\n${entry.content}`);
-      } else if (entry.type === 'action') {
-        currentUserContent.push(`${entry.character_name}: ${entry.content}`);
-      } else if (entry.type === 'gm_nudge') {
-        currentUserContent.push(`[GM INSTRUCTION - DO NOT REVEAL THIS TO PLAYERS]: ${entry.content}`);
-      } else {
-        currentUserContent.push(entry.content);
-      }
-    }
-  }
-
-  // Flush remaining user content
-  if (currentUserContent.length > 0) {
-    currentUserContent.push('Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.');
-    aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
-  }
+  // Convert stored history to AI-compatible format (single source of truth shared with the
+  // compaction token count, so the trigger measures the same payload we actually send).
+  const aiMessages = buildConversationMessages(recentHistory);
 
   const messages = [
     { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
@@ -302,7 +394,6 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
 
   // Acquire the AI response (streamed chunk-by-chunk, or a single non-streaming call)
   let aiResponse;
-  let usageTokens; // total_tokens from a non-streaming response; undefined when streaming
   if (stream) {
     // Stream the AI response
     aiResponse = '';
@@ -332,11 +423,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
       throw new Error('Could not parse AI response. Check server logs.');
     }
-
-    usageTokens = data.usage?.total_tokens;
   }
-
-  const tokensUsed = usageTokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
@@ -412,43 +499,28 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   };
   applyAllTags(tagApplicatorDeps, aiResponse, characters, sessionId);
 
-  // Update session - calculate tokens based on recent history only
-  const recentHistoryForTokenCount = fullHistory.slice(compactedCount);
-  const recentHistoryTokens = estimateTokens(JSON.stringify(recentHistoryForTokenCount));
-
-  const maxTokens = parseInt(settings.max_tokens_before_compact) || 8000;
+  // Update session — decide compaction from the ACTUAL outgoing prompt tokens (content only),
+  // keeping a raw tail so the gap between summarizations does not vanish.
+  const maxTokens = parseInt(settings.max_tokens_before_compact) || DEFAULT_MAX_TOKENS_BEFORE_COMPACT;
+  const plan = planCompaction(fullHistory, compactedCount, session.story_summary, maxTokens);
+  const recentHistoryTokens = plan.tokens;
   let newSummary = session.story_summary;
   let newCompactedCount = compactedCount;
 
-  const minMessagesBeforeCompact = 4;
-  const shouldCompact = recentHistoryTokens > maxTokens && recentHistoryForTokenCount.length >= minMessagesBeforeCompact;
+  console.log(`Token check: promptTokens=${plan.tokens}, maxTokens=${maxTokens}, recentEntries=${fullHistory.length - compactedCount}, shouldCompact=${plan.shouldCompact}`);
 
-  console.log(`Token check: recentHistoryTokens=${recentHistoryTokens}, maxTokens=${maxTokens}, messagesSinceCompact=${recentHistoryForTokenCount.length}, shouldCompact=${shouldCompact}`);
-
-  if (shouldCompact) {
-    console.log('Compacting history...');
-    const recentHistoryToCompact = fullHistory.slice(compactedCount, -1);
-
-    // Progressive: if history is very long, compact in chunks of 25
-    if (recentHistoryToCompact.length > 50) {
-      console.log(`Progressive compaction: ${recentHistoryToCompact.length} entries, compacting first 25`);
-      const chunk = recentHistoryToCompact.slice(0, 25);
-      const chunkSummary = await compactHistory(apiConfig, '', chunk, characters, extractAIMessage);
-
-      // Merge chunk summary with existing summary
+  if (plan.shouldCompact) {
+    console.log(`Compacting history (mode=${plan.mode}, keeping tail of ${COMPACT_TAIL})...`);
+    if (plan.mode === 'progressive') {
+      const chunkSummary = await compactHistory(apiConfig, '', plan.toCompact, characters, extractAIMessage);
       newSummary = await compactHistory(apiConfig, session.story_summary,
         [{ role: 'assistant', content: chunkSummary }], characters, extractAIMessage);
-
-      // Only mark the compacted chunk as compacted (not all history)
-      newCompactedCount = compactedCount + 25;
     } else {
-      // Normal compaction for shorter histories
-      newSummary = await compactHistory(apiConfig, session.story_summary, recentHistoryToCompact, characters, extractAIMessage);
-      newCompactedCount = fullHistory.length - 1;
+      newSummary = await compactHistory(apiConfig, session.story_summary, plan.toCompact, characters, extractAIMessage);
     }
+    newCompactedCount = plan.newCompactedCount;
 
-    // Cap summary length at 4000 chars
-    if (newSummary && newSummary.length > 4000) {
+    if (newSummary && newSummary.length > MAX_SUMMARY_CHARS) {
       console.log(`Summary too long (${newSummary.length} chars), performing recursive summarization`);
       newSummary = await compactHistory(apiConfig, '',
         [{ role: 'assistant', content: newSummary }], characters, extractAIMessage);
@@ -470,7 +542,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     response: cleanedResponse,
     turn: session.current_turn + 1,
     tokensUsed: recentHistoryTokens,
-    compacted: shouldCompact,
+    compacted: plan.shouldCompact,
     choices: parsedChoices,
     povs: hasPOVs ? parsedPOVs : null
   });
@@ -509,5 +581,14 @@ module.exports = {
   processAITurn,
   streamAITurn,
   compactHistory,
-  estimateTokens
+  estimateTokens,
+  // Pure, testable compaction helpers (U2.2)
+  buildConversationMessages,
+  estimatePromptTokens,
+  planCompaction,
+  // Tuning constants (exported for tests)
+  COMPACT_TAIL,
+  MIN_MESSAGES_BEFORE_COMPACT,
+  DEFAULT_MAX_TOKENS_BEFORE_COMPACT,
+  MAX_SUMMARY_CHARS
 };
