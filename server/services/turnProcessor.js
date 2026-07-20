@@ -108,11 +108,15 @@ Generate the structured summary now:`;
 }
 
 /**
- * Process an AI turn for a game session
+ * Core AI turn processor — shared implementation behind processAITurn (non-streaming)
+ * and streamAITurn (SSE streaming). The two paths are identical except for how the AI
+ * response is acquired (single call vs streamed chunks), one extra "Converting to POV"
+ * progress marker on the stream path, and cosmetic debug-log strings. Behavior on each
+ * path is preserved exactly; the `options.stream` flag selects the path.
  * @param {Object} deps - Dependencies
  * @param {Object} deps.db - Database instance
  * @param {Object} deps.io - Socket.IO instance
- * @param {Object} deps.aiService - AI service (extractAIMessage)
+ * @param {Object} deps.aiService - AI service (extractAIMessage; callAIStream + detectProvider for streaming)
  * @param {Object} deps.tagParser - Tag parser service
  * @param {Function} deps.getActiveApiConfig - Get active API config
  * @param {string} deps.DEFAULT_SYSTEM_PROMPT - Default DM system prompt
@@ -124,9 +128,12 @@ Generate the structured summary now:`;
  * @param {string} sessionId - Session ID
  * @param {Array} pendingActions - Pending actions
  * @param {Array} characters - Session characters
+ * @param {Object} [options] - Options
+ * @param {boolean} [options.stream=false] - Stream the AI response via SSE chunks
  * @returns {Promise<Object>} Result with response and token count
  */
-async function processAITurn(deps, sessionId, pendingActions, characters) {
+async function runAITurn(deps, sessionId, pendingActions, characters, options = {}) {
+  const stream = options.stream === true;
   const {
     db, io, aiService, tagParser,
     getActiveApiConfig, DEFAULT_SYSTEM_PROMPT,
@@ -134,7 +141,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     emitToSession,
     applyAllTags
   } = deps;
-  const { extractAIMessage } = aiService;
+  const { extractAIMessage, callAIStream, detectProvider } = aiService;
   const { findCharacterByName } = tagParser;
   const sendToSession = typeof emitToSession === 'function'
     ? emitToSession
@@ -271,27 +278,65 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   ];
 
   // Debug logging
-  console.log('=== AI Request Debug ===');
-  console.log(`Compacted count: ${compactedCount}`);
-  console.log(`Full history length: ${fullHistory.length}`);
-  console.log(`Recent history length (sent to AI): ${recentHistory.length}`);
-  console.log(`Has story summary: ${!!session.story_summary}`);
-  if (session.story_summary) {
-    console.log(`Story summary length: ${session.story_summary.length} chars`);
+  if (stream) {
+    // Check if the provider/endpoint supports streaming
+    // For now, we assume all providers support streaming
+    const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
+    console.log('=== AI Stream Request Debug ===');
+    console.log(`Provider: ${provider}`);
+    console.log(`Compacted count: ${compactedCount}`);
+    console.log(`Full history length: ${fullHistory.length}`);
+    console.log(`Recent history length (sent to AI): ${recentHistory.length}`);
+    console.log(`Total messages to AI: ${messages.length}`);
+  } else {
+    console.log('=== AI Request Debug ===');
+    console.log(`Compacted count: ${compactedCount}`);
+    console.log(`Full history length: ${fullHistory.length}`);
+    console.log(`Recent history length (sent to AI): ${recentHistory.length}`);
+    console.log(`Has story summary: ${!!session.story_summary}`);
+    if (session.story_summary) {
+      console.log(`Story summary length: ${session.story_summary.length} chars`);
+    }
+    console.log(`Total messages to AI: ${messages.length} (1 system + ${aiMessages.length} conversation)`);
   }
-  console.log(`Total messages to AI: ${messages.length} (1 system + ${aiMessages.length} conversation)`);
 
-  // Call AI API (supports both OpenAI and Anthropic via aiService)
-  const { callAI } = require('./aiService');
-  const data = await callAI(apiConfig, messages, { maxTokens: 64000 });
-  let aiResponse = extractAIMessage(data);
+  // Acquire the AI response (streamed chunk-by-chunk, or a single non-streaming call)
+  let aiResponse;
+  let usageTokens; // total_tokens from a non-streaming response; undefined when streaming
+  if (stream) {
+    // Stream the AI response
+    aiResponse = '';
+    try {
+      for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: 64000 })) {
+        aiResponse += chunk;
+        // Emit each chunk to clients for real-time display
+        sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
+      }
+    } catch (streamError) {
+      console.error('Stream error:', streamError);
+      throw new Error(`AI Streaming Error: ${streamError.message}`);
+    }
 
-  if (!aiResponse) {
-    console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
-    throw new Error('Could not parse AI response. Check server logs.');
+    if (!aiResponse) {
+      throw new Error('AI returned empty streaming response.');
+    }
+
+    // No prefix stripping needed — prefill removed
+  } else {
+    // Call AI API (supports both OpenAI and Anthropic via aiService)
+    const { callAI } = require('./aiService');
+    const data = await callAI(apiConfig, messages, { maxTokens: 64000 });
+    aiResponse = extractAIMessage(data);
+
+    if (!aiResponse) {
+      console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
+      throw new Error('Could not parse AI response. Check server logs.');
+    }
+
+    usageTokens = data.usage?.total_tokens;
   }
 
-  const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
+  const tokensUsed = usageTokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
@@ -306,7 +351,12 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   const { generateCharacterPOV } = require('./aiService');
   let parsedPOVs = {};
   if (characters.length > 0) {
-    console.log(`Converting scene to POV for ${characters.length} characters...`);
+    if (stream) {
+      console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
+      sendToSession(sessionId, 'turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
+    } else {
+      console.log(`Converting scene to POV for ${characters.length} characters...`);
+    }
 
     // Build shared party roster so the POV converter knows all character names/identities
     const partyRoster = characters.map(c => {
@@ -354,7 +404,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   }
 
   // Apply all tags from the AI response (from the original 3rd-person narration)
-  console.log('=== AI Response received ===');
+  console.log(stream ? '=== AI Stream Response complete ===' : '=== AI Response received ===');
   console.log('Looking for tags in response...');
 
   const tagApplicatorDeps = {
@@ -429,325 +479,30 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 }
 
 /**
- * Process an AI turn with SSE streaming - sends chunks to clients in real-time
- * Same logic as processAITurn but uses streaming for the AI API call
+ * Process an AI turn for a game session (non-streaming).
+ * Thin wrapper over runAITurn — signature preserved for index.js.
+ * @param {Object} deps - Dependencies (see runAITurn)
+ * @param {string} sessionId - Session ID
+ * @param {Array} pendingActions - Pending actions
+ * @param {Array} characters - Session characters
+ * @returns {Promise<Object>} Result with response and token count
+ */
+function processAITurn(deps, sessionId, pendingActions, characters) {
+  return runAITurn(deps, sessionId, pendingActions, characters, { stream: false });
+}
+
+/**
+ * Process an AI turn with SSE streaming - sends chunks to clients in real-time.
+ * Same logic as processAITurn but uses streaming for the AI API call.
+ * Thin wrapper over runAITurn — signature preserved for index.js.
  * @param {Object} deps - Dependencies (same as processAITurn + deps.aiService.callAIStream)
  * @param {string} sessionId - Session ID
  * @param {Array} pendingActions - Pending actions
  * @param {Array} characters - Session characters
  * @returns {Promise<Object>} Result with response and token count
  */
-async function streamAITurn(deps, sessionId, pendingActions, characters) {
-  const {
-    db, io, aiService, tagParser,
-    getActiveApiConfig, DEFAULT_SYSTEM_PROMPT,
-    processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
-    emitToSession,
-    applyAllTags
-  } = deps;
-  const { extractAIMessage, callAIStream, detectProvider } = aiService;
-  const { findCharacterByName } = tagParser;
-  const sendToSession = typeof emitToSession === 'function'
-    ? emitToSession
-    : (id, event, payload) => io.emit(event, payload);
-
-  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
-  const apiConfig = getActiveApiConfig();
-  if (!apiConfig || !apiConfig.api_key) {
-    throw new Error('No active API configuration. Please add and activate one in Settings.');
-  }
-
-  // Check if the provider/endpoint supports streaming
-  // For now, we assume all providers support streaming
-  const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
-
-  // Get general settings
-  const settings = {};
-  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
-
-  let fullHistory = JSON.parse(session.full_history || '[]');
-  const compactedCount = session.compacted_count || 0;
-
-  // Build character info (same as processAITurn)
-  const characterInfo = characters.map(c => {
-    let classDisplay = `${c.class} ${c.level}`;
-    try {
-      const classes = JSON.parse(c.classes || '{}');
-      if (Object.keys(classes).length > 0) {
-        classDisplay = Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ');
-      }
-    } catch (e) {}
-
-    const acEffects = parseAcEffects(c.ac_effects);
-    let acDisplay = `${c.ac || 10} (${acEffects.base_source}: ${acEffects.base_value}`;
-    if (acEffects.effects.length > 0) {
-      const effectsStr = acEffects.effects.map(e => `${e.name}: +${e.value}`).join(', ');
-      acDisplay += ` + ${effectsStr}`;
-    }
-    acDisplay += ')';
-
-    // Parse inventory for display
-    let inventoryDisplay = '';
-    try {
-      const inv = JSON.parse(c.inventory || '[]');
-      if (inv.length > 0) {
-        inventoryDisplay = inv.map(i => i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name).join(', ');
-      }
-    } catch (e) {}
-
-    let info = `${c.character_name} (${c.race} ${classDisplay}, played by ${c.player_name}):\n`;
-    info += `  Stats: STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma}\n`;
-    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${acDisplay}, Gold: ${c.gold || 0}`;
-    if (c.inspiration_points !== undefined) info += `, Inspiration: ${c.inspiration_points}`;
-    if (inventoryDisplay) info += `\n  Inventory: ${inventoryDisplay}`;
-    if (c.appearance) info += `\n  Appearance: ${c.appearance}`;
-    if (c.backstory) info += `\n  Backstory: ${c.backstory}`;
-    if (c.skills) info += `\n  Skills: ${c.skills}`;
-    if (c.spells) info += `\n  Spells: ${c.spells}`;
-    if (c.passives) info += `\n  Passives: ${c.passives}`;
-    if (c.class_features) info += `\n  Class Features: ${c.class_features}`;
-    if (c.feats) info += `\n  Feats: ${c.feats}`;
-    return info;
-  }).join('\n\n');
-
-  // Build action summary
-  const actionSummary = pendingActions.map(pa => {
-    const char = characters.find(c => c.id === pa.character_id);
-    return `${char ? char.character_name : 'Unknown'}: ${pa.action}`;
-  }).join('\n');
-
-  // Store character context as hidden system context
-  fullHistory.push({
-    role: 'user',
-    content: characterInfo,
-    type: 'context',
-    hidden: true
-  });
-
-  // Store each player action as a separate entry for display
-  for (const pa of pendingActions) {
-    const char = characters.find(c => c.id === pa.character_id);
-    if (char) {
-      fullHistory.push({
-        role: 'user',
-        content: pa.action,
-        type: 'action',
-        character_id: char.id,
-        character_name: char.character_name,
-        player_name: char.player_name
-      });
-    }
-  }
-
-  // Build messages array for AI - only send messages after compacted_count
-  let recentHistory = fullHistory.slice(compactedCount);
-
-  // Safety net
-  if (recentHistory.length === 0 && fullHistory.length > 0) {
-    const fallbackCount = Math.min(10, fullHistory.length);
-    recentHistory = fullHistory.slice(-fallbackCount);
-    console.warn(`Safety fallback: compacted_count (${compactedCount}) exceeded history length (${fullHistory.length}). Using last ${fallbackCount} messages.`);
-  }
-
-  // Convert stored history to AI-compatible format
-  const aiMessages = [];
-  let currentUserContent = [];
-
-  for (const entry of recentHistory) {
-    if (entry.role === 'assistant') {
-      if (currentUserContent.length > 0) {
-        aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
-        currentUserContent = [];
-      }
-      aiMessages.push({ role: 'assistant', content: entry.content });
-    } else if (entry.role === 'user') {
-      if (entry.type === 'context') {
-        currentUserContent.push(`PARTY STATUS:\n${entry.content}`);
-      } else if (entry.type === 'action') {
-        currentUserContent.push(`${entry.character_name}: ${entry.content}`);
-      } else if (entry.type === 'gm_nudge') {
-        currentUserContent.push(`[GM INSTRUCTION - DO NOT REVEAL THIS TO PLAYERS]: ${entry.content}`);
-      } else {
-        currentUserContent.push(entry.content);
-      }
-    }
-  }
-
-  // Flush remaining user content
-  if (currentUserContent.length > 0) {
-    currentUserContent.push('Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.');
-    aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
-  }
-
-  const messages = [
-    { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
-    ...aiMessages,
-    // No assistant prefill — Anthropic rejects trailing whitespace and it adds unnecessary tokens
-  ];
-
-  // Debug logging
-  console.log('=== AI Stream Request Debug ===');
-  console.log(`Provider: ${provider}`);
-  console.log(`Compacted count: ${compactedCount}`);
-  console.log(`Full history length: ${fullHistory.length}`);
-  console.log(`Recent history length (sent to AI): ${recentHistory.length}`);
-  console.log(`Total messages to AI: ${messages.length}`);
-
-  // Stream the AI response
-  let aiResponse = '';
-  try {
-    for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: 64000 })) {
-      aiResponse += chunk;
-      // Emit each chunk to clients for real-time display
-      sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
-    }
-  } catch (streamError) {
-    console.error('Stream error:', streamError);
-    throw new Error(`AI Streaming Error: ${streamError.message}`);
-  }
-
-  if (!aiResponse) {
-    throw new Error('AI returned empty streaming response.');
-  }
-
-  // No prefix stripping needed — prefill removed
-
-  const tokensUsed = estimateTokens(JSON.stringify(messages) + aiResponse);
-
-  // Parse choices before stripping them from the response
-  const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
-
-  // Strip CHOICE tags from the narration stored in history
-  const cleanedResponse = aiResponse
-    .replace(/\[CHOICE:\s*[^\]]+\]/gi, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  // === POV CONVERSION: Convert 3rd-person scene to per-character 2nd-person POVs ===
-  const { generateCharacterPOV } = require('./aiService');
-  let parsedPOVs = {};
-  if (characters.length > 0) {
-    console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
-    sendToSession(sessionId, 'turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
-
-    // Build shared party roster so the POV converter knows all character names/identities
-    const partyRoster = characters.map(c => {
-      let entry = `- ${c.character_name}, ${c.race} ${c.class}`;
-      if (c.appearance) entry += ` — ${c.appearance}`;
-      return entry;
-    }).join('\n');
-
-    const storySummary = session.story_summary || '';
-
-    const povResults = await Promise.all(characters.map(async (c) => {
-      const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary);
-      return pov ? { name: c.character_name, pov } : null;
-    }));
-    for (const result of povResults) {
-      if (result) parsedPOVs[result.name] = result.pov;
-    }
-    console.log(`POV conversion complete: ${Object.keys(parsedPOVs).length}/${characters.length} characters`);
-  }
-  const hasPOVs = Object.keys(parsedPOVs).length > 0;
-
-  // Build history entry with POVs attached
-  const historyEntry = { role: 'assistant', content: cleanedResponse, type: 'narration' };
-  if (hasPOVs) {
-    historyEntry.povs = parsedPOVs;
-  }
-  fullHistory.push(historyEntry);
-
-  // Snapshot character states BEFORE applying tags (for reroll restore)
-  try {
-    const characterStates = characters.map(c => ({
-      id: c.id,
-      hp: c.hp, max_hp: c.max_hp, ac: c.ac,
-      xp: c.xp, gold: c.gold,
-      inventory: c.inventory,
-      spell_slots: c.spell_slots,
-      ac_effects: c.ac_effects,
-      inspiration_points: c.inspiration_points
-    }));
-    db.prepare('INSERT INTO game_snapshots (id, session_id, turn_number, character_states) VALUES (?, ?, ?, ?)')
-      .run(uuidv4(), sessionId, session.current_turn, JSON.stringify(characterStates));
-    console.log(`Snapshot saved for session ${sessionId}, turn ${session.current_turn}`);
-  } catch (snapshotError) {
-    console.error('Failed to save game snapshot:', snapshotError.message);
-  }
-
-  // Apply all tags from the AI response
-  console.log('=== AI Stream Response complete ===');
-  console.log('Looking for tags in response...');
-
-  const tagApplicatorDeps = {
-    db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC
-  };
-  applyAllTags(tagApplicatorDeps, aiResponse, characters, sessionId);
-
-  // Update session - calculate tokens based on recent history only
-  const recentHistoryForTokenCount = fullHistory.slice(compactedCount);
-  const recentHistoryTokens = estimateTokens(JSON.stringify(recentHistoryForTokenCount));
-
-  const maxTokens = parseInt(settings.max_tokens_before_compact) || 8000;
-  let newSummary = session.story_summary;
-  let newCompactedCount = compactedCount;
-
-  const minMessagesBeforeCompact = 4;
-  const shouldCompact = recentHistoryTokens > maxTokens && recentHistoryForTokenCount.length >= minMessagesBeforeCompact;
-
-  console.log(`Token check: recentHistoryTokens=${recentHistoryTokens}, maxTokens=${maxTokens}, messagesSinceCompact=${recentHistoryForTokenCount.length}, shouldCompact=${shouldCompact}`);
-
-  if (shouldCompact) {
-    console.log('Compacting history...');
-    const recentHistoryToCompact = fullHistory.slice(compactedCount, -1);
-
-    // Progressive: if history is very long, compact in chunks of 25
-    if (recentHistoryToCompact.length > 50) {
-      console.log(`Progressive compaction: ${recentHistoryToCompact.length} entries, compacting first 25`);
-      const chunk = recentHistoryToCompact.slice(0, 25);
-      const chunkSummary = await compactHistory(apiConfig, '', chunk, characters, extractAIMessage);
-
-      // Merge chunk summary with existing summary
-      newSummary = await compactHistory(apiConfig, session.story_summary,
-        [{ role: 'assistant', content: chunkSummary }], characters, extractAIMessage);
-
-      // Only mark the compacted chunk as compacted (not all history)
-      newCompactedCount = compactedCount + 25;
-    } else {
-      // Normal compaction for shorter histories
-      newSummary = await compactHistory(apiConfig, session.story_summary, recentHistoryToCompact, characters, extractAIMessage);
-      newCompactedCount = fullHistory.length - 1;
-    }
-
-    // Cap summary length at 4000 chars
-    if (newSummary && newSummary.length > 4000) {
-      console.log(`Summary too long (${newSummary.length} chars), performing recursive summarization`);
-      newSummary = await compactHistory(apiConfig, '',
-        [{ role: 'assistant', content: newSummary }], characters, extractAIMessage);
-    }
-
-    db.prepare('UPDATE game_sessions SET story_summary = ?, full_history = ?, compacted_count = ?, total_tokens = 0, current_turn = current_turn + 1 WHERE id = ?')
-      .run(newSummary, JSON.stringify(fullHistory), newCompactedCount, sessionId);
-  } else {
-    db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ?, current_turn = current_turn + 1 WHERE id = ?')
-      .run(JSON.stringify(fullHistory), recentHistoryTokens, sessionId);
-  }
-
-  // Clear pending actions
-  db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
-
-  // Emit final turn_processed to all clients (replaces streaming content with formatted version)
-  sendToSession(sessionId, 'turn_processed', {
-    sessionId,
-    response: cleanedResponse,
-    turn: session.current_turn + 1,
-    tokensUsed: recentHistoryTokens,
-    compacted: shouldCompact,
-    choices: parsedChoices,
-    povs: hasPOVs ? parsedPOVs : null
-  });
-
-  return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
+function streamAITurn(deps, sessionId, pendingActions, characters) {
+  return runAITurn(deps, sessionId, pendingActions, characters, { stream: true });
 }
 
 module.exports = {
