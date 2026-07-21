@@ -7,6 +7,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { validate, validateBody, schemas } = require('../lib/validation');
 const { getCached, setCache, invalidateCache } = require('../lib/cache');
+const { extractMarkerJson } = require('../lib/markerJson');
 
 /**
  * Create character router with dependencies
@@ -740,23 +741,7 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
 
       // Check if level up is complete
       if (aiMessage.includes('LEVELUP_COMPLETE:')) {
-        let jsonStr = null;
-        const startIdx = aiMessage.indexOf('LEVELUP_COMPLETE:') + 'LEVELUP_COMPLETE:'.length;
-        const jsonStart = aiMessage.indexOf('{', startIdx);
-
-        if (jsonStart !== -1) {
-          let braceCount = 0;
-          let jsonEnd = jsonStart;
-          for (let i = jsonStart; i < aiMessage.length; i++) {
-            if (aiMessage[i] === '{') braceCount++;
-            if (aiMessage[i] === '}') braceCount--;
-            if (braceCount === 0) {
-              jsonEnd = i + 1;
-              break;
-            }
-          }
-          jsonStr = aiMessage.substring(jsonStart, jsonEnd);
-        }
+        const jsonStr = extractMarkerJson(aiMessage, 'LEVELUP_COMPLETE:');
 
         if (jsonStr) {
           try {
@@ -915,23 +900,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
 
       // Check if edit is complete — try marker first, then fallback to JSON detection
       if (aiMessage.includes('EDIT_COMPLETE:') || aiMessage.includes('"EDIT_COMPLETE"')) {
-        let jsonStr = null;
-        const startIdx = aiMessage.indexOf('EDIT_COMPLETE:') + 'EDIT_COMPLETE:'.length;
-        const jsonStart = aiMessage.indexOf('{', startIdx);
-
-        if (jsonStart !== -1) {
-          let braceCount = 0;
-          let jsonEnd = jsonStart;
-          for (let i = jsonStart; i < aiMessage.length; i++) {
-            if (aiMessage[i] === '{') braceCount++;
-            if (aiMessage[i] === '}') braceCount--;
-            if (braceCount === 0) {
-              jsonEnd = i + 1;
-              break;
-            }
-          }
-          jsonStr = aiMessage.substring(jsonStart, jsonEnd);
-        }
+        const jsonStr = extractMarkerJson(aiMessage, 'EDIT_COMPLETE:');
 
         if (jsonStr) {
           try {
@@ -1057,23 +1026,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
 
       // Check if character creation is complete
       if (aiMessage.includes('CHARACTER_COMPLETE:')) {
-        let jsonStr = null;
-        const startIdx = aiMessage.indexOf('CHARACTER_COMPLETE:') + 'CHARACTER_COMPLETE:'.length;
-        const jsonStart = aiMessage.indexOf('{', startIdx);
-
-        if (jsonStart !== -1) {
-          let braceCount = 0;
-          let jsonEnd = jsonStart;
-          for (let i = jsonStart; i < aiMessage.length; i++) {
-            if (aiMessage[i] === '{') braceCount++;
-            if (aiMessage[i] === '}') braceCount--;
-            if (braceCount === 0) {
-              jsonEnd = i + 1;
-              break;
-            }
-          }
-          jsonStr = aiMessage.substring(jsonStart, jsonEnd);
-        }
+        const jsonStr = extractMarkerJson(aiMessage, 'CHARACTER_COMPLETE:');
 
         if (jsonStr) {
           try {
