@@ -21,7 +21,7 @@ const logger = require('../lib/logger');
  * @returns {Object} Summary of what was applied
  */
 function applyAllTags(deps, aiResponse, characters, sessionId) {
-  const { db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC } = deps;
+  const { db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC, emitCharacterUpdate } = deps;
   const { findCharacterByName } = tagParser;
 
   const summary = {
@@ -53,7 +53,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
           if (char) {
             db.prepare('UPDATE characters SET xp = MAX(0, xp + ?) WHERE id = ?').run(xpAmount, char.id);
             const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-            io.emit('character_updated', updatedChar);
+            emitCharacterUpdate(char.id, 'character_updated', updatedChar);
             console.log(`XP Update: ${char.character_name} +${xpAmount} -> ${updatedChar.xp} XP`);
             summary.xp.push({ character: char.character_name, amount: xpAmount });
           } else {
@@ -82,7 +82,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
             const newMoney = Math.max(0, (char.gold || 0) + moneyAmount);
             db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newMoney, char.id);
             const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-            io.emit('character_updated', updatedChar);
+            emitCharacterUpdate(char.id, 'character_updated', updatedChar);
             console.log(`Money update: ${char.character_name} ${sign > 0 ? '+' : ''}${moneyAmount} -> ${newMoney}`);
             summary.money.push({ character: char.character_name, amount: moneyAmount });
           } else {
@@ -159,7 +159,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
             // Clean up any items with quantity <= 0 that might have slipped through
             const cleanedInventory = inventory.filter(i => (i.quantity || 1) > 0);
             db.prepare('UPDATE characters SET inventory = ? WHERE id = ?').run(JSON.stringify(cleanedInventory), char.id);
-            io.emit('character_updated', { ...char, inventory: JSON.stringify(cleanedInventory) });
+            emitCharacterUpdate(char.id, 'character_updated', { ...char, inventory: JSON.stringify(cleanedInventory) });
             summary.items.push({ character: char.character_name, item: itemName, quantity, isAdding });
           } else {
             console.log(`Character not found: "${charName}". Available:`, characters.map(c => c.character_name));
@@ -197,7 +197,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
                 }
               }
               db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), partyChar.id);
-              io.emit('character_updated', { ...partyChar, spell_slots: JSON.stringify(spellSlots) });
+              emitCharacterUpdate(partyChar.id, 'character_updated', { ...partyChar, spell_slots: JSON.stringify(spellSlots) });
             }
             summary.spellSlots.push({ character: 'Party', action: 'rest' });
             continue;
@@ -248,7 +248,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
             }
 
             db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), char.id);
-            io.emit('character_updated', { ...char, spell_slots: JSON.stringify(spellSlots) });
+            emitCharacterUpdate(char.id, 'character_updated', { ...char, spell_slots: JSON.stringify(spellSlots) });
           }
         }
       }
@@ -275,7 +275,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
           acEffects.base_value = baseValue;
           updateCharacterAC(db, char.id, acEffects);
           const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-          io.emit('character_updated', updatedChar);
+          emitCharacterUpdate(char.id, 'character_updated', updatedChar);
           summary.ac.push({ character: char.character_name, action: 'set_base', armor: armorName, value: baseValue });
         }
         continue;
@@ -308,7 +308,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
           }
           updateCharacterAC(db, char.id, acEffects);
           const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-          io.emit('character_updated', updatedChar);
+          emitCharacterUpdate(char.id, 'character_updated', updatedChar);
           summary.ac.push({ character: char.character_name, action: 'add_effect', effect: effectName, value: effectValue });
         }
         continue;
@@ -326,7 +326,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
           acEffects.effects = acEffects.effects.filter(e => e.name.toLowerCase() !== effectName.toLowerCase());
           updateCharacterAC(db, char.id, acEffects);
           const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-          io.emit('character_updated', updatedChar);
+          emitCharacterUpdate(char.id, 'character_updated', updatedChar);
           summary.ac.push({ character: char.character_name, action: 'remove_effect', effect: effectName });
         }
         continue;
@@ -369,7 +369,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
           .run(JSON.stringify(spellSlots), char.id);
 
         const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-        io.emit('character_updated', updatedChar);
+        emitCharacterUpdate(char.id, 'character_updated', updatedChar);
         console.log(`REST: ${char.character_name} - HP restored to max, spell slots restored, inspiration reset to 4`);
       }
     }
@@ -409,7 +409,7 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
 
           db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(newHp, char.id);
           const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
-          io.emit('character_updated', updatedChar);
+          emitCharacterUpdate(char.id, 'character_updated', updatedChar);
           console.log(`HP Update: ${char.character_name} ${operator}${value} -> ${newHp} HP`);
           summary.hp.push({ character: char.character_name, operator, value, newHp });
         } else {

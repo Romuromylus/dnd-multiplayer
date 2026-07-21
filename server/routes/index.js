@@ -17,6 +17,7 @@ const { createAdminUserRoutes } = require('./adminUsers');
 function initializeRoutes(deps) {
   const {
     db, io, auth, aiService, emitToSession,
+    emitCharacterUpdate, emitToUser,
     processingSessions, getActiveApiConfig, processAITurn,
     DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
     parseAcEffects, calculateTotalAC, updateCharacterAC,
@@ -25,7 +26,7 @@ function initializeRoutes(deps) {
 
   return {
     auth: createAuthRoutes(db, auth),
-    characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig }),
+    characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig, emitCharacterUpdate }),
     apiConfig: createApiConfigRoutes(db, auth),
     sessions: createSessionRoutes({
       db, io, auth, aiService, emitToSession,
@@ -41,7 +42,7 @@ function initializeRoutes(deps) {
     }),
     tts: createTTSRoutes({ db, auth, getOpenAIApiKey }),
     dndData: createDndDataRoutes(db, auth),
-    adminUsers: createAdminUserRoutes(db, auth, io)
+    adminUsers: createAdminUserRoutes(db, auth, io, { emitCharacterUpdate, emitToUser })
   };
 }
 

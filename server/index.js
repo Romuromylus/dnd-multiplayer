@@ -85,6 +85,40 @@ function emitToSession(sessionId, event, payload) {
 }
 
 // ============================================
+// Identity rooms + scoped character broadcasts
+// ============================================
+// Every socket joins its own user room (and, for admins, the shared admin room)
+// on connect. Character-scoped events are delivered only to the union of the
+// character's session rooms, its owner's room, and the admin room — never a
+// global io.emit, which would leak one player's HP/gold/inventory/backstory to
+// every connected client regardless of session.
+const USER_ROOM_PREFIX = 'user:';
+const ADMIN_ROOM = 'admins';
+function getUserRoom(userId) {
+  return `${USER_ROOM_PREFIX}${userId}`;
+}
+
+function characterBroadcastRooms(characterId) {
+  const rooms = new Set([ADMIN_ROOM]);
+  const owner = db.prepare('SELECT user_id FROM characters WHERE id = ?').get(characterId);
+  if (owner && owner.user_id != null) rooms.add(getUserRoom(owner.user_id));
+  const sessionRows = db.prepare('SELECT session_id FROM session_characters WHERE character_id = ?').all(characterId);
+  for (const row of sessionRows) rooms.add(getSessionRoom(row.session_id));
+  return [...rooms];
+}
+
+// Emit a character-scoped event to exactly the clients entitled to see it.
+// For delete, call this BEFORE removing the row so the owner/session lookup resolves.
+function emitCharacterUpdate(characterId, event, payload) {
+  io.to(characterBroadcastRooms(characterId)).emit(event, payload);
+}
+
+function emitToUser(userId, event, payload) {
+  if (userId == null) return;
+  io.to(getUserRoom(userId)).emit(event, payload);
+}
+
+// ============================================
 // Helper: Get active API config (formatted for routes)
 // ============================================
 function getActiveApiConfig() {
@@ -103,6 +137,7 @@ const turnDeps = {
   processingSessions,
   parseAcEffects, calculateTotalAC, updateCharacterAC,
   emitToSession,
+  emitCharacterUpdate,
   applyAllTags
 };
 
@@ -137,6 +172,8 @@ function getOpenAIApiKey() {
 const routes = initializeRoutes({
   db, io, auth, authLimiter: null, aiService,
   emitToSession,
+  emitCharacterUpdate,
+  emitToUser,
   processingSessions,
   getActiveApiConfig,
   processAITurn,
@@ -186,6 +223,14 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   logger.debug('Client connected', { socketId: socket.id, userId: socket.data.user?.id });
+
+  // Join identity rooms so character-scoped broadcasts can reach this client
+  // even when it is not currently viewing a session (e.g. the Characters tab).
+  const connectedUser = socket.data.user;
+  if (connectedUser) {
+    socket.join(getUserRoom(connectedUser.id));
+    if (connectedUser.is_admin) socket.join(ADMIN_ROOM);
+  }
 
   socket.on('join_session', ({ sessionId } = {}) => {
     if (!sessionId) return;

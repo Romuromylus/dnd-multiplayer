@@ -257,6 +257,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     getActiveApiConfig, DEFAULT_SYSTEM_PROMPT,
     processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
     emitToSession,
+    emitCharacterUpdate,
     applyAllTags
   } = deps;
   const { extractAIMessage, callAIStream, detectProvider } = aiService;
@@ -495,7 +496,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   console.log('Looking for tags in response...');
 
   const tagApplicatorDeps = {
-    db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC
+    db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC, emitCharacterUpdate
   };
   applyAllTags(tagApplicatorDeps, aiResponse, characters, sessionId);
 

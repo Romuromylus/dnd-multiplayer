@@ -19,7 +19,7 @@ const { getCached, setCache, invalidateCache } = require('../lib/cache');
  * @returns {express.Router} Configured router
  */
 function createCharacterRoutes(deps) {
-  const { db, io, auth, aiService, getActiveApiConfig } = deps;
+  const { db, io, auth, aiService, getActiveApiConfig, emitCharacterUpdate } = deps;
   const router = express.Router();
   const { requireUser, requireAdmin } = auth;
   const { upload } = require('../middleware/upload');
@@ -270,7 +270,7 @@ function createCharacterRoutes(deps) {
     enrichCharacter(id);
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
     invalidateCache('characters:');
-    io.emit('character_created', character);
+    emitCharacterUpdate(character.id, 'character_created', character);
     res.json(character);
   });
 
@@ -312,9 +312,11 @@ function createCharacterRoutes(deps) {
    * Delete a character
    */
   router.delete('/:id', requireAdmin, (req, res) => {
+    // Resolve recipients (owner + sessions + admins) while the row still exists,
+    // then delete. Clients refetch on the event, which lands after this sync delete.
+    emitCharacterUpdate(req.params.id, 'character_deleted', req.params.id);
     db.prepare('DELETE FROM characters WHERE id = ?').run(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_deleted', req.params.id);
     res.json({ success: true });
   });
 
@@ -332,7 +334,7 @@ function createCharacterRoutes(deps) {
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -347,7 +349,7 @@ function createCharacterRoutes(deps) {
     db.prepare('UPDATE characters SET xp = 0 WHERE id = ?').run(req.params.id);
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -364,7 +366,7 @@ function createCharacterRoutes(deps) {
     db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newGold, req.params.id);
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -424,7 +426,7 @@ function createCharacterRoutes(deps) {
     db.prepare('UPDATE characters SET inventory = ? WHERE id = ?').run(JSON.stringify(inventory), req.params.id);
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -462,7 +464,7 @@ function createCharacterRoutes(deps) {
     db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), req.params.id);
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -505,7 +507,7 @@ function createCharacterRoutes(deps) {
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -576,7 +578,7 @@ function createCharacterRoutes(deps) {
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -600,7 +602,7 @@ function createCharacterRoutes(deps) {
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -648,7 +650,7 @@ function createCharacterRoutes(deps) {
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    io.emit('character_updated', updated);
+    emitCharacterUpdate(updated.id, 'character_updated', updated);
     res.json(updated);
   });
 
@@ -799,8 +801,8 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
 
             const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
             invalidateCache('characters:');
-            io.emit('character_updated', updatedChar);
-            io.emit('character_leveled_up', { character: updatedChar, summary: levelData.summary });
+            emitCharacterUpdate(updatedChar.id, 'character_updated', updatedChar);
+            emitCharacterUpdate(updatedChar.id, 'character_leveled_up', { character: updatedChar, summary: levelData.summary });
 
             const cleanMessage = aiMessage.substring(0, aiMessage.indexOf('LEVELUP_COMPLETE:')).trim();
             return res.json({ message: cleanMessage || 'Level up complete!', complete: true, character: updatedChar, levelUp: levelData });
@@ -965,7 +967,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
 
             const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
             invalidateCache('characters:');
-            io.emit('character_updated', updatedChar);
+            emitCharacterUpdate(updatedChar.id, 'character_updated', updatedChar);
 
             const markerIdx = aiMessage.indexOf('EDIT_COMPLETE:');
             const cleanMessage = markerIdx >= 0 ? aiMessage.substring(0, markerIdx).trim() : '';
@@ -1009,7 +1011,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
               db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
               const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
               invalidateCache('characters:');
-              io.emit('character_updated', updatedChar);
+              emitCharacterUpdate(updatedChar.id, 'character_updated', updatedChar);
               console.log('Edit saved via fallback JSON detection');
               return res.json({ message: 'Character updated!', complete: true, character: updatedChar });
             }
@@ -1113,7 +1115,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
             enrichCharacter(id);
             const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
             invalidateCache('characters:');
-            io.emit('character_created', character);
+            emitCharacterUpdate(character.id, 'character_created', character);
 
             const cleanMessage = aiMessage.substring(0, aiMessage.indexOf('CHARACTER_COMPLETE:')).trim();
             return res.json({ message: cleanMessage || 'Character created!', complete: true, character });

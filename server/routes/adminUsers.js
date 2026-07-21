@@ -9,9 +9,10 @@ const { v4: uuidv4 } = require('uuid');
 const { validate, validateBody, schemas } = require('../lib/validation');
 const { invalidateCache } = require('../lib/cache');
 
-function createAdminUserRoutes(db, auth, io) {
+function createAdminUserRoutes(db, auth, io, broadcast = {}) {
   const router = express.Router();
   const { requireAdmin, deleteUserSessions } = auth;
+  const { emitCharacterUpdate, emitToUser } = broadcast;
 
   /**
    * GET /api/admin/users
@@ -111,8 +112,9 @@ function createAdminUserRoutes(db, auth, io) {
    */
   router.post('/characters/:id/assign', requireAdmin, (req, res) => {
     const { user_id } = req.body;
-    const character = db.prepare('SELECT id FROM characters WHERE id = ?').get(req.params.id);
+    const character = db.prepare('SELECT id, user_id FROM characters WHERE id = ?').get(req.params.id);
     if (!character) return res.status(404).json({ error: 'Character not found' });
+    const previousOwnerId = character.user_id;
 
     if (user_id !== null && user_id !== undefined && user_id !== '') {
       const user = db.prepare('SELECT id FROM users WHERE id = ?').get(user_id);
@@ -124,7 +126,12 @@ function createAdminUserRoutes(db, auth, io) {
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
-    if (io) io.emit('character_updated', updated);
+    // Reach the new owner (+ its sessions + admins) via the standard resolver, and
+    // additionally the previous owner so the reassigned character leaves their list.
+    if (emitCharacterUpdate) emitCharacterUpdate(req.params.id, 'character_updated', updated);
+    if (emitToUser && previousOwnerId != null && previousOwnerId !== updated.user_id) {
+      emitToUser(previousOwnerId, 'character_updated', updated);
+    }
     res.json(updated);
   });
 
