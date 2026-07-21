@@ -12,13 +12,18 @@ Process per unit (Marinara lessons): one Opus implementer per small scoped unit 
 - **U1.3 Test harness**: `node:test` + package.json `test` script; tests for currently-pure logic: `tagParser.parseChoices`, `findCharacterByName`, `lib/validation.js`, XP thresholds. Tests are committed (own repo — unlike Marinara upstream local-only rule).
 - **U1.4 Helper unification**: one canonical `getActiveApiConfig` shape (kill the dual `{api_endpoint,api_key,api_model}` vs `{endpoint,api_key,model}` and the defensive `x.api_endpoint || x.endpoint` normalizations in sessions.js/characters.js); single `estimateTokens` (currently defined in both aiService.js:285 and turnProcessor.js:14).
 
-## Phase 2 — Summarization rework (user's explicit pain point)
+## Phase 2 — Summarization rework (user's explicit pain point) — DONE
 
-Root cause of "vanishing space between summarizations": the compact trigger at `turnProcessor.js:385-393` counts `estimateTokens(JSON.stringify(recentHistory))` — stored entries **including per-character `povs`** (one full scene rewrite per player) + JSON overhead — while the model is only ever sent `entry.content`. With N players the counter runs ~(N+1)× hot, so the 8000-token threshold trips faster and faster.
+Root cause of "vanishing space between summarizations": the compact trigger counted `estimateTokens(JSON.stringify(recentHistory))` — stored entries **including per-character `povs`** (one full scene rewrite per player) + JSON overhead — while the model is only ever sent `entry.content`. With N players the counter ran ~(N+1)× hot, so the 8000-token threshold tripped faster and faster. Compounded by `compacted_count = length-1` leaving exactly 1 raw entry post-compaction.
 
-- **U2.1 Merge turn processors**: `processAITurn` (turnProcessor.js:143-448) and `streamAITurn` (459-781) are ~99% duplicated; merge into one core with an injected model-caller (callAI vs callAIStream). Preserve the index.js:116-132 stream-first-with-fallback wrapper semantics.
-- **U2.2 Compaction fix**: trigger on tokens of the **actual outgoing messages array** (system prompt + aiMessages); after compaction keep a **tail of ~10 raw entries** uncompacted (today `compacted_count = length-1` leaves exactly 1 — a continuity cliff); keep `max_tokens_before_compact` setting but raise default (≥16000); revisit the 4000-char summary cap + recursive re-summarization (progressive detail loss).
-- **U2.3 Tests**: trigger math, tail retention, progressive-chunking (25-entry) path, stale compacted_count fallback.
+- **U2.1 Merge turn processors** — DONE (9d21280): merged `processAITurn`/`streamAITurn` into one `runAITurn(deps, ...opts)` with the stream-vs-non-stream difference isolated to the acquisition block; thin wrappers preserve the exports + index.js fallback. Pure refactor, −245 lines, verified byte-identical.
+- **U2.2 Compaction fix** — DONE (831286e): trigger now counts the actual outgoing payload via `buildConversationMessages` + `estimatePromptTokens` (content + summary only; ~34× less than old count on a 3-player fixture); keeps a `COMPACT_TAIL=10` raw-entry tail; default threshold 8000→16000 (still overridable via `max_tokens_before_compact`); summary cap 4000→8000. Decision logic extracted to pure `planCompaction`.
+- **U2.3 Tests** — DONE (831286e): `tests/turnProcessor.test.js`, 11 tests (message building, inflation proof, all planCompaction branches incl. tail retention). Adversarially verified across 3 lenses (payload-accuracy / convergence / regression) — all CORRECT.
+- **Also fixed** (b7ba691): a `ReferenceError` (dangling `aiCallConfig`) that U1.4 left on the non-streaming POV path.
+
+**Verified follow-ups (NOT done — deliberate future work, do not smuggle into other units):**
+1. *Context-entry aging*: every turn pushes a fresh `type:'context'` party-status entry (full character sheets incl. backstories) into history, and ALL past ones within the window are re-sent to the model each turn. Sending only the latest context (drop/collapse stale ones) would cut real prompt size substantially. This CHANGES what's sent → needs its own scoped unit + verification. Good Phase 3 candidate.
+2. *maxTokens floor vs tail cost*: if someone sets `max_tokens_before_compact` below the cost of the 10-entry tail + summary, mild re-compact thrash can recur (still far milder than the old bug, not hit at default 16000). Optional hardening: floor the setting relative to tail cost.
 
 ## Phase 3 — Backend consolidation
 
