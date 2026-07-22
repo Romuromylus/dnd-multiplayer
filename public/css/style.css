@@ -4382,19 +4382,54 @@ button { cursor: pointer; }
 }
 
 [data-theme="light"] .story-main {
-  background: #ded8ca;
+  background: #eee9df;
+}
+
+[data-theme="light"] .story-main::after {
+  background: rgba(255, 252, 245, 0.06);
 }
 
 [data-theme="light"] .story-topbar {
-  border-bottom-color: rgba(255, 255, 255, 0.12);
-  background: rgba(20, 18, 18, 0.76);
+  border-bottom-color: rgba(var(--accent-rgb), 0.22);
+  background: rgba(255, 252, 245, 0.94);
+  box-shadow: 0 8px 24px rgba(62, 42, 26, 0.12);
+}
+
+[data-theme="light"] .story-topbar .game-info span {
+  color: var(--text-muted);
+  background: rgba(var(--accent-rgb), 0.06);
+  border-color: rgba(var(--accent-rgb), 0.16);
+}
+
+[data-theme="light"] .story-topbar .music-dj-player,
+[data-theme="light"] .story-topbar .music-dj-title {
+  color: var(--text);
+}
+
+[data-theme="light"] .story-topbar .music-dj-controls button {
+  color: var(--text);
+  background: var(--bg-light);
+  border-color: var(--border-color);
 }
 
 [data-theme="light"] #story-container:not(.logs-open) .active-scene-entry {
-  color: #f7f2e9;
-  background: rgba(24, 20, 19, 0.8);
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 16px 40px rgba(38, 25, 18, 0.3);
+  color: var(--text);
+  background: rgba(255, 252, 245, 0.94);
+  border-color: rgba(var(--accent-rgb), 0.3);
+  box-shadow: 0 16px 40px rgba(62, 42, 26, 0.2);
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .active-scene-entry .role {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .active-scene-entry .content,
+[data-theme="light"] #story-container:not(.logs-open) .active-scene-entry .pov-section-content {
+  color: var(--text-bright);
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .active-scene-entry .narration-header {
+  background: linear-gradient(180deg, rgba(255, 252, 245, 0.99) 72%, rgba(255, 252, 245, 0));
 }
 
 [data-theme="light"] #story-container.logs-open {
@@ -4408,6 +4443,27 @@ button { cursor: pointer; }
   color: var(--text) !important;
   background: var(--bg-light) !important;
   border-color: var(--border-color) !important;
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .story-logs-btn,
+[data-theme="light"] #story-container:not(.logs-open) .pov-image-btn,
+[data-theme="light"] #story-container:not(.logs-open) .story-minimize-btn,
+[data-theme="light"] #story-container:not(.logs-open) .story-scene-view {
+  color: var(--text) !important;
+  background: rgba(var(--accent-rgb), 0.06) !important;
+  border-color: rgba(var(--accent-rgb), 0.22) !important;
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .pov-image-btn {
+  color: var(--accent) !important;
+  border-color: rgba(var(--accent-rgb), 0.45) !important;
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .story-logs-btn:hover,
+[data-theme="light"] #story-container:not(.logs-open) .pov-image-btn:hover,
+[data-theme="light"] #story-container:not(.logs-open) .story-minimize-btn:hover,
+[data-theme="light"] #story-container:not(.logs-open) .story-scene-view:hover {
+  background: rgba(var(--accent-rgb), 0.12) !important;
 }
 
 .story-logs-btn,
@@ -4449,6 +4505,17 @@ button { cursor: pointer; }
 }
 
 #story-container:not(.logs-open) .pov-regen-btn { color: #f3cf67; }
+
+[data-theme="light"] #story-container:not(.logs-open) .pov-regen-btn,
+[data-theme="light"] #story-container:not(.logs-open) .pov-toggle-btn,
+[data-theme="light"] #story-container:not(.logs-open) .tts-play-btn,
+[data-theme="light"] #story-container:not(.logs-open) .delete-msg-btn {
+  color: var(--text-muted);
+  background: rgba(var(--accent-rgb), 0.05);
+  border-color: rgba(var(--accent-rgb), 0.18);
+}
+
+[data-theme="light"] #story-container:not(.logs-open) .pov-regen-btn { color: var(--accent); }
 
 .story-scene-thumbnail {
   width: 100%;
@@ -4532,11 +4599,37 @@ button { cursor: pointer; }
 }
 
 [data-theme="light"] .action-bar {
-  background: rgba(24, 20, 19, 0.82);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 252, 245, 0.95);
+  border-color: rgba(var(--accent-rgb), 0.28);
+  box-shadow: 0 16px 40px rgba(62, 42, 26, 0.2);
 }
 
-[data-theme="light"] .action-bar .choices-body { background: rgba(24, 20, 19, 0.95); }
+[data-theme="light"] .action-bar .choices-body {
+  background: rgba(255, 252, 245, 0.98);
+  border-color: rgba(var(--accent-rgb), 0.24);
+}
+
+[data-theme="light"] .action-bar #action-character,
+[data-theme="light"] .action-bar .dice-stat-select,
+[data-theme="light"] .action-bar #action-text {
+  color: var(--text);
+  background: var(--bg-light);
+  border-color: var(--border-color);
+}
+
+[data-theme="light"] .action-bar .choices-toggle,
+[data-theme="light"] .action-bar .dice-label,
+[data-theme="light"] .action-bar .dice-mod {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .action-bar .choices-toggle {
+  background: rgba(var(--accent-rgb), 0.05);
+}
+
+[data-theme="light"] .action-bar .dice-value { color: var(--text-bright); }
+[data-theme="light"] .action-bar .view-only-banner { color: var(--text-muted); }
+[data-theme="light"] .action-bar select option { color: var(--text); background: var(--bg-light); }
 
 .action-bar .dice-label,
 .action-bar .dice-mod,
