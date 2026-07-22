@@ -20,6 +20,7 @@ const POV_RECENT_CONTEXT_LIMIT = 14;
 const POV_CONTEXT_ENTRY_MAX_CHARS = 900;
 const POV_CONTEXT_MAX_CHARS = 7000;
 const POV_CHARACTER_FIELD_MAX_CHARS = 1200;
+const POV_CORRECTION_NOTE_MAX_CHARS = 1000;
 
 function compactPromptText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -102,6 +103,95 @@ function buildPOVCampaignContext(history = [], options = {}) {
   const maxChars = Math.max(1000, parseInt(options.maxChars, 10) || POV_CONTEXT_MAX_CHARS);
   const lines = history.map(formatPOVHistoryEntry).filter(Boolean).slice(-limit);
   return truncatePromptText(lines.join('\n\n'), maxChars);
+}
+
+function normalizeAliasCandidate(value) {
+  let alias = compactPromptText(value)
+    .replace(/^[:"'“”‘’\s-]+/, '')
+    .replace(/[.!,;:)"'“”‘’\]]+$/g, '')
+    .trim();
+
+  alias = alias.replace(/\b(?:while|when|before|after|because|with|and|but|to|for|from)\b.*$/i, '').trim();
+  alias = alias.replace(/'s$/i, '').trim();
+  if (!alias || alias.length > 80) return '';
+  if (/^(?:i|me|myself|himself|herself|themself|someone|another|the|a|an)$/i.test(alias)) return '';
+  return alias;
+}
+
+function addAliasCandidate(aliases, characterName, rawAlias) {
+  const alias = normalizeAliasCandidate(rawAlias);
+  if (!alias) return;
+  if (characterName && alias.toLowerCase() === String(characterName).toLowerCase()) return;
+  aliases.set(alias.toLowerCase(), alias);
+}
+
+function extractPOVAliasesFromText(text, characterName) {
+  const aliases = new Map();
+  const source = String(text || '');
+  if (!source.trim()) return [];
+
+  const namePattern = /([A-Z][A-Za-z0-9'’-]*(?:\s+(?:[A-Z][A-Za-z0-9'’-]*|of|the|de|van|von)){0,4})/g;
+  const aliasPatterns = [
+    /\b(?:masquerad(?:e|es|ed|ing)|disguis(?:e|es|ed|ing)|posing|posed|pose|pretend(?:s|ed|ing)?|impersonat(?:e|es|ed|ing)|passing|passed|passes|wear(?:s|ing)?(?:\s+the\s+face\s+of)?|assum(?:e|es|ed|ing)(?:\s+the\s+(?:identity|guise|form|role|name)\s+of)?|known|called|calls?\s+(?:myself|himself|herself|themself))\s+(?:as\s+|for\s+|by\s+the\s+name\s+of\s+|under\s+the\s+name\s+of\s+|the\s+name\s+of\s+|the\s+guise\s+of\s+)?["'“”‘’]?([A-Z][A-Za-z0-9'’-]*(?:\s+(?:[A-Z][A-Za-z0-9'’-]*|of|the|de|van|von)){0,4})/gi,
+    /\b(?:alias|aliases|persona|personas|false identity|public identity|public name|public face|cover identity|disguise)\s*(?:is|are|:|-|=|as)?\s*["'“”‘’]?([A-Z][A-Za-z0-9'’-]*(?:\s+(?:[A-Z][A-Za-z0-9'’-]*|of|the|de|van|von)){0,4})/gi
+  ];
+
+  for (const pattern of aliasPatterns) {
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      addAliasCandidate(aliases, characterName, match[1]);
+    }
+  }
+
+  if (characterName) {
+    const targetIdentityPattern = new RegExp(`\\b${String(characterName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b.{0,90}\\b(?:as|alias|persona|identity|disguise|masquerad\\w*)\\b.{0,80}`, 'gi');
+    let identityMatch;
+    while ((identityMatch = targetIdentityPattern.exec(source)) !== null) {
+      let nameMatch;
+      while ((nameMatch = namePattern.exec(identityMatch[0])) !== null) {
+        addAliasCandidate(aliases, characterName, nameMatch[1]);
+      }
+      namePattern.lastIndex = 0;
+    }
+  }
+
+  return [...aliases.values()];
+}
+
+function buildPOVIdentityNotes(character = {}, storySummary = '', campaignContext = '', correctionNote = '') {
+  const aliases = new Map();
+  const characterName = character.character_name || '';
+  const sourceTexts = [
+    character.background,
+    character.appearance,
+    character.backstory,
+    storySummary,
+    campaignContext,
+    correctionNote
+  ];
+
+  for (const text of sourceTexts) {
+    for (const alias of extractPOVAliasesFromText(text, characterName)) {
+      addAliasCandidate(aliases, characterName, alias);
+    }
+  }
+
+  const aliasList = [...aliases.values()];
+  const notes = [];
+  const correction = truncatePromptText(correctionNote, POV_CORRECTION_NOTE_MAX_CHARS);
+  if (correction) {
+    notes.push(`Player/GM correction for this reroll: ${correction}`);
+  }
+
+  if (aliasList.length > 0) {
+    notes.push(`${characterName || 'This character'} may be referred to by these aliases, disguises, public identities, or false names: ${aliasList.join(', ')}.`);
+    notes.push(`If the scene uses one of those names, treat that name as ${characterName || 'the target character'}'s current public face and rewrite those actions, sensations, and speech as "you" unless the scene clearly establishes a different real person.`);
+    notes.push(`Resolve contradictions in favor of embodied identity: do not leave ${characterName || 'the target'} asleep, absent, or overhearing an alias while that alias is actively speaking or acting in the scene.`);
+  } else if (/changeling/i.test(`${character.race || ''} ${character.backstory || ''} ${character.appearance || ''} ${correction}`)) {
+    notes.push(`${characterName || 'This character'} is a changeling or disguise-capable character. Before writing, check whether the scene/context uses a public face or false name for them; if so, treat that public identity as "you," not as a separate nearby person.`);
+  }
+
+  return notes.length ? notes.map(note => `- ${note}`).join('\n') : '';
 }
 
 /**
@@ -668,6 +758,8 @@ const POV_CONVERSION_PROMPT = `You are rewriting a D&D scene as ONE character's 
 - The CHARACTER section names the single target identity behind this POV. If recent context says this character is using, wearing, masquerading as, or being addressed by another name, that public name is this same "you" in the POV, not a separate person.
 - If the scene names the target through an alias, disguise, false identity, title, or mistaken public name, convert that action or sensation into "you" and your body. Do not write as though the alias walked away from, spoke to, or existed separately from the target character.
 - Preserve deception boundaries: NPCs and other characters may still use the public name they know, while the target's inner narration can know the truth of their own identity.
+- Before writing, perform this identity check silently: list every name in the scene that could refer to the target, including aliases from ACTIVE IDENTITY NOTES. If an alias is active, rewrite the alias's actions as the target's own experience even if the target's legal name also appears elsewhere.
+- If the shared scene accidentally contradicts an active alias (for example, it has the target asleep while their alias is speaking), repair the POV by following the alias/action continuity. Do not preserve an impossible split into two people.
 
 ## PROSE
 - Vivid, specific, felt. Avoid lifeless AI tics: reflexive "not X, but Y," "served as / a testament to," trailing "..., highlighting her resolve" summaries, rule-of-three padding, filler vocabulary (delve, tapestry, palpable, "sent shivers down her spine").
@@ -765,9 +857,10 @@ function getOpenAIApiKey(db) {
  * @param {string} partyRoster - pre-built party roster string
  * @param {string} storySummary - optional story-so-far context
  * @param {string} campaignContext - optional recent-history context
+ * @param {string} correctionNote - optional user/GM note for a manual reroll
  * @returns {Promise<string|null>}
  */
-async function generateCharacterPOV(aiConfig, character, sceneContent, partyRoster, storySummary = '', campaignContext = '') {
+async function generateCharacterPOV(aiConfig, character, sceneContent, partyRoster, storySummary = '', campaignContext = '', correctionNote = '') {
   let charContext = `${character.character_name}, ${character.race} ${character.class}`;
   if (character.background) charContext += `. Background: ${truncatePromptText(character.background, 400)}`;
   if (character.appearance) charContext += `. Appearance: ${truncatePromptText(character.appearance, 500)}`;
@@ -779,6 +872,8 @@ async function generateCharacterPOV(aiConfig, character, sceneContent, partyRost
   if (character.feats) charContext += `. Feats: ${truncatePromptText(character.feats, 500)}`;
 
   let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
+  const identityNotes = buildPOVIdentityNotes(character, storySummary, campaignContext, correctionNote);
+  if (identityNotes) userContent += `\n\nACTIVE IDENTITY NOTES:\n${identityNotes}`;
   if (storySummary) userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
   if (campaignContext) userContent += `\n\nRECENT CAMPAIGN CONTEXT:\n${campaignContext}`;
   userContent += `\n\nSCENE TO REWRITE:\n${sceneContent}`;
@@ -872,6 +967,7 @@ module.exports = {
   generateCharacterPOV,
   buildPOVPartyRoster,
   buildPOVCampaignContext,
+  buildPOVIdentityNotes,
   generateStateTags,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
@@ -886,5 +982,6 @@ module.exports = {
   POV_CONTINUATION_MAX_TOKENS,
   OPENING_SCENE_MAX_TOKENS,
   POV_RECENT_CONTEXT_LIMIT,
-  POV_CONTEXT_MAX_CHARS
+  POV_CONTEXT_MAX_CHARS,
+  POV_CORRECTION_NOTE_MAX_CHARS
 };

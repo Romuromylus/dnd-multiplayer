@@ -593,11 +593,16 @@ function getSelectedCharacterName() {
 export async function regeneratePOV(index, characterId, triggerButton = null) {
   const currentSession = getState('currentSession');
   if (!currentSession) return;
+  const correctionNote = window.prompt(
+    'Optional POV note for this reroll. Example: Violeta is currently masquerading as Julius. Leave blank for a normal reroll.',
+    ''
+  );
+  if (correctionNote === null) return;
   const btn = triggerButton || document.querySelector(`.story-entry[data-index="${index}"] .pov-regen-btn`);
   const originalLabel = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
   try {
-    await api(`/api/sessions/${currentSession.id}/regenerate-pov`, 'POST', { index, characterId });
+    await api(`/api/sessions/${currentSession.id}/regenerate-pov`, 'POST', { index, characterId, correctionNote });
     showNotification('POV rerolled');
     await loadSession(currentSession.id);
   } catch (error) {

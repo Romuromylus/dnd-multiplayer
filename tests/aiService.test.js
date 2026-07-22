@@ -11,6 +11,7 @@ const {
   POV_CONVERSION_PROMPT,
   buildPOVPartyRoster,
   buildPOVCampaignContext,
+  buildPOVIdentityNotes,
   NARRATION_WORD_LIMIT,
   POV_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
@@ -39,6 +40,7 @@ describe('POV campaign context', () => {
     assert.match(POV_CONVERSION_PROMPT, /masquerading as/);
     assert.match(POV_CONVERSION_PROMPT, /same "you"/);
     assert.match(POV_CONVERSION_PROMPT, /alias\/disguise\/public identity/);
+    assert.match(POV_CONVERSION_PROMPT, /repair the POV/);
   });
 
   test('party roster gives the target full private context without exposing other backstories', () => {
@@ -87,6 +89,32 @@ describe('POV campaign context', () => {
     assert.doesNotMatch(context, /private party sheet/);
     assert.doesNotMatch(context, /secret GM-only instruction/);
     assert.doesNotMatch(context, /private generated POV/);
+  });
+
+  test('identity notes pin masquerade aliases as the same embodied POV', () => {
+    const notes = buildPOVIdentityNotes(
+      { character_name: 'Violeta', race: 'Changeling', class: 'Rogue' },
+      '',
+      '[Violeta]: I keep masquerading as Julius while questioning the guard.\n\n[DM]: Julius keeps the guard talking by the door.',
+      ''
+    );
+
+    assert.match(notes, /Julius/);
+    assert.match(notes, /current public face/);
+    assert.match(notes, /do not leave Violeta asleep/);
+  });
+
+  test('manual reroll correction notes are included as identity context', () => {
+    const notes = buildPOVIdentityNotes(
+      { character_name: 'Violeta', race: 'Changeling', class: 'Rogue' },
+      '',
+      '',
+      'Violeta is currently disguised as Julius; Julius is not a separate person.'
+    );
+
+    assert.match(notes, /Player\/GM correction/);
+    assert.match(notes, /Julius/);
+    assert.match(notes, /same embodied POV|current public face/);
   });
 });
 

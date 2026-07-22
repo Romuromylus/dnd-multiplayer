@@ -415,6 +415,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
   router.post('/:id/regenerate-pov', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     const { index, characterId } = req.body || {};
+    const correctionNote = validate.sanitizeString(req.body?.correctionNote || '', aiService.POV_CORRECTION_NOTE_MAX_CHARS || 1000);
 
     if (processingSessions.has(sessionId)) {
       return res.status(409).json({
@@ -476,7 +477,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     try {
       const pov = await aiService.generateCharacterPOV(
-        aiConfig, character, entry.content || '', partyRoster, session.story_summary || '', povCampaignContext
+        aiConfig, character, entry.content || '', partyRoster, session.story_summary || '', povCampaignContext, correctionNote
       );
       if (!pov) {
         return res.status(502).json({ error: 'POV generation failed after retry' });
