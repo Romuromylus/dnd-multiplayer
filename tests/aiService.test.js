@@ -7,6 +7,12 @@ const {
   extractFinishReason,
   isLengthFinish,
   buildContinuationMessages,
+  DEFAULT_SYSTEM_PROMPT,
+  POV_CONVERSION_PROMPT,
+  NARRATION_WORD_LIMIT,
+  POV_WORD_LIMIT,
+  NARRATION_MAX_TOKENS,
+  POV_MAX_TOKENS,
 } = require('../server/services/aiService.js');
 
 describe('extractFinishReason', () => {
@@ -63,5 +69,19 @@ describe('buildContinuationMessages', () => {
     assert.equal(messages.length, 3);
     assert.deepEqual(messages.slice(0, 2), baseMessages);
     assert.deepEqual(messages[2], { role: 'assistant', content: 'partial scene' });
+  });
+});
+
+describe('generation length budgets', () => {
+  test('DM and POV prompts include explicit word limits', () => {
+    assert.equal(NARRATION_WORD_LIMIT, 650);
+    assert.equal(POV_WORD_LIMIT, 450);
+    assert.match(DEFAULT_SYSTEM_PROMPT, /650 words or fewer/);
+    assert.match(POV_CONVERSION_PROMPT, /450 words/);
+  });
+
+  test('output token caps are bounded enough to avoid runaway generations', () => {
+    assert.ok(NARRATION_MAX_TOKENS <= 3500);
+    assert.ok(POV_MAX_TOKENS <= 2400);
   });
 });

@@ -6,6 +6,11 @@
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../lib/logger');
 const { estimateTokens } = require('../lib/tokens');
+const {
+  NARRATION_WORD_LIMIT,
+  NARRATION_MAX_TOKENS,
+  NARRATION_CONTINUATION_MAX_TOKENS
+} = require('./aiService');
 
 // === History compaction tuning constants ===
 // COMPACT_TAIL: number of most-recent raw entries ALWAYS retained (never summarized), so a
@@ -156,7 +161,7 @@ function buildConversationMessages(recentHistory) {
 
   // Flush remaining user content
   if (currentUserContent.length > 0) {
-    currentUserContent.push('Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.');
+    currentUserContent.push(`Narrate the outcome of these actions in 3rd person in no more than ${NARRATION_WORD_LIMIT} words, then add [CHOICE:] tags at the end.`);
     aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
   }
 
@@ -400,7 +405,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     aiResponse = '';
     try {
       const meta = {};
-      for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: 64000, meta })) {
+      for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: NARRATION_MAX_TOKENS, meta })) {
         aiResponse += chunk;
         // Emit each chunk to clients for real-time display
         sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
@@ -412,7 +417,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
         guard++;
         console.warn(`Narration hit token cap (finish_reason=${meta.finishReason}); continuing (${guard}/2)...`);
         const contMeta = {};
-        for await (const chunk of callAIStream(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: 64000, meta: contMeta })) {
+        for await (const chunk of callAIStream(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: NARRATION_CONTINUATION_MAX_TOKENS, meta: contMeta })) {
           aiResponse += chunk;
           sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
         }
@@ -431,7 +436,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   } else {
     // Call AI API (supports both OpenAI and Anthropic via aiService)
     const { callAI } = require('./aiService');
-    const data = await callAI(apiConfig, messages, { maxTokens: 64000, timeoutMs: 300000 });
+    const data = await callAI(apiConfig, messages, { maxTokens: NARRATION_MAX_TOKENS, timeoutMs: 300000 });
     aiResponse = extractAIMessage(data);
 
     if (!aiResponse) {
@@ -445,7 +450,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     while (isLengthFinish(finish) && aiResponse && guard < 2) {
       guard++;
       console.warn(`Narration hit token cap (finish_reason=${finish}); continuing (${guard}/2)...`);
-      const contData = await callAI(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: 64000, timeoutMs: 300000 });
+      const contData = await callAI(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: NARRATION_CONTINUATION_MAX_TOKENS, timeoutMs: 300000 });
       const contText = extractAIMessage(contData);
       if (!contText || !contText.trim()) break;
       aiResponse += contText;

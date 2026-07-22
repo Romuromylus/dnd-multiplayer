@@ -8,6 +8,15 @@ const dns = require('dns').promises;
 const net = require('net');
 const { estimateTokens } = require('../lib/tokens');
 
+const NARRATION_WORD_LIMIT = 650;
+const POV_WORD_LIMIT = 450;
+const OPENING_SCENE_WORD_LIMIT = 500;
+const NARRATION_MAX_TOKENS = 3500;
+const NARRATION_CONTINUATION_MAX_TOKENS = 1200;
+const POV_MAX_TOKENS = 2400;
+const POV_CONTINUATION_MAX_TOKENS = 800;
+const OPENING_SCENE_MAX_TOKENS = 2800;
+
 /**
  * Detect provider from endpoint URL
  * @param {string} endpoint - API endpoint URL
@@ -494,6 +503,10 @@ Never narrate the game as a game. Outside the sanctioned dice line and tracking 
 ## FORMATTING
 - A blank line between every paragraph — never run two together. Start a new paragraph when the speaker, actor, or focus changes; never bury two characters' dialogue in one block. Alternate description, action, and dialogue so the scene breathes.
 
+## LENGTH BUDGET
+- Keep the shared narration to ${NARRATION_WORD_LIMIT} words or fewer before [CHOICE:] tags. Complete the scene cleanly inside that limit; do not trail off mid-sentence.
+- Spend words on character actions, consequences, and immediate sensory detail. Condense transitions, repeated atmosphere, and restated setup.
+
 ## ANTI-SLOP
 Cut the tics that mark machine writing (this is about killing generic prose, not warmth): reflexive "not X, but Y"; "served as" / "stood as a testament to" where "was" is meant; trailing "..., highlighting her resolve" summaries; rule-of-three adjective padding; empty sentences that assert much and specify nothing; filler vocabulary (delve, tapestry, intricate, myriad, cascade, palpable, "a symphony of", "sent shivers down her spine"). Stated emotion and vivid feeling are good; the enemy is generic, not heartfelt.
 
@@ -548,9 +561,13 @@ After your narration, offer 2-4 suggested actions per character using CHOICE tag
 const POV_CONVERSION_PROMPT = `You are rewriting a D&D scene as ONE character's personal experience, in 2nd person ("you"). The goal is an immersive, high-craft retelling from behind this character's eyes — not a summary, not a flat copy.
 
 ## PERSPECTIVE (third-limited, locked to this character)
-- Rewrite the ENTIRE scene as "you" for this character, keeping every event, action, dialogue line, combat result, and detail this character could perceive. Do NOT shorten, skip, or summarize; do NOT add events, dialogue, or plot the original doesn't contain.
+- Rewrite the complete scene as "you" for this character, keeping every important event, action, dialogue beat, combat result, and detail this character could perceive. Compress repeated description and transitions as needed; do NOT add events, dialogue, or plot the original doesn't contain.
 - Render only what THIS character sees, hears, and bodily feels. Everyone else is read from the OUTSIDE — their words, expressions, and body language. Never state another person's private thoughts or feelings as fact; infer or guess them the way this character would ("her jaw tightened — anger, or fear, you couldn't tell").
 - If the scene shows something this character was not present for or could not perceive, leave it out of their POV.
+
+## LENGTH BUDGET
+- Hard cap: ${POV_WORD_LIMIT} words. Finish cleanly inside this limit; never trail off mid-sentence.
+- Preserve the scene's essential outcome and emotion, but do not line-by-line expand the shared narration.
 
 ## INTERIORITY & VOICE (where the quality lives)
 - Give the character's thoughts, reactions, memories, instincts, and the private weight the moment carries — filtered through their personality, class, background, and backstory. Render direct inner thought in italics where it fits.
@@ -673,15 +690,15 @@ async function generateCharacterPOV(aiConfig, character, sceneContent, partyRost
   const provider = detectProvider(aiConfig.endpoint);
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const data = await callAI(aiConfig, messages, { maxTokens: 16000, temperature: 0.7, timeoutMs: 300000 });
+      const data = await callAI(aiConfig, messages, { maxTokens: POV_MAX_TOKENS, temperature: 0.7, timeoutMs: 300000 });
       let text = extractAIMessage(data);
       if (text && text.trim()) {
         let finish = extractFinishReason(data);
         let guard = 0;
-        while (isLengthFinish(finish) && guard < 3) {
+        while (isLengthFinish(finish) && guard < 1) {
           guard++;
-          console.warn(`POV for ${character.character_name} hit token cap (finish_reason=${finish}); continuing (${guard}/3)...`);
-          const contData = await callAI(aiConfig, buildContinuationMessages(messages, text, provider), { maxTokens: 16000, temperature: 0.7, timeoutMs: 300000 });
+          console.warn(`POV for ${character.character_name} hit token cap (finish_reason=${finish}); continuing briefly (${guard}/1)...`);
+          const contData = await callAI(aiConfig, buildContinuationMessages(messages, text, provider), { maxTokens: POV_CONTINUATION_MAX_TOKENS, temperature: 0.7, timeoutMs: 300000 });
           const contText = extractAIMessage(contData);
           if (!contText || !contText.trim()) break;
           text += contText;
@@ -756,5 +773,13 @@ module.exports = {
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
   POV_CONVERSION_PROMPT,
-  BOOKKEEPER_PROMPT
+  BOOKKEEPER_PROMPT,
+  NARRATION_WORD_LIMIT,
+  POV_WORD_LIMIT,
+  OPENING_SCENE_WORD_LIMIT,
+  NARRATION_MAX_TOKENS,
+  NARRATION_CONTINUATION_MAX_TOKENS,
+  POV_MAX_TOKENS,
+  POV_CONTINUATION_MAX_TOKENS,
+  OPENING_SCENE_MAX_TOKENS
 };

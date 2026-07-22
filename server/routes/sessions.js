@@ -174,7 +174,7 @@ function createSessionRoutes(deps) {
 
           const openingPrompt = `Setting: ${sanitizedPrompt}${characterIntro}
 
-Write an atmospheric opening scene in 3rd person that sets the mood and introduces the world. Describe where the party finds themselves and what they see, hear, and sense around them. Make it vivid and immersive. End with something that invites the players to act.
+Write an atmospheric opening scene in 3rd person that sets the mood and introduces the world. Describe where the party finds themselves and what they see, hear, and sense around them. Make it vivid and immersive. Keep it to ${aiService.OPENING_SCENE_WORD_LIMIT || 500} words or fewer, and end cleanly with something that invites the players to act.
 
 Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is just the intro.`;
 
@@ -187,7 +187,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
             const data = await aiService.callAI(aiConfig, [
               { role: 'system', content: openingSystemPrompt },
               { role: 'user', content: openingPrompt }
-            ], { maxTokens: 4096 });
+            ], { maxTokens: aiService.OPENING_SCENE_MAX_TOKENS || 2800 });
             const openingScene = aiService.extractAIMessage(data);
 
             if (openingScene) {
@@ -412,13 +412,20 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
   /**
    * POST /api/sessions/:id/regenerate-pov
-   * Regenerate a missing per-character POV on a specific narration entry.
+   * Regenerate one per-character POV on a specific narration entry.
    * Body: { index: <history index>, characterId: <character id> }
-   * Admin only — used to repair turns where one character's POV failed.
+   * Admins may reroll any POV; players may only reroll POVs for characters they own.
    */
-  router.post('/:id/regenerate-pov', requireAdmin, async (req, res) => {
+  router.post('/:id/regenerate-pov', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     const { index, characterId } = req.body || {};
+
+    if (processingSessions.has(sessionId)) {
+      return res.status(409).json({
+        error: 'Turn is currently being processed. Please wait for the Narrator to finish.',
+        processing: true
+      });
+    }
 
     if (typeof index !== 'number' || index < 0) {
       return res.status(400).json({ error: 'Valid history index is required' });
@@ -429,6 +436,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    if (!userCanViewSession(req.user, sessionId)) {
+      return res.status(403).json({ error: 'You do not have a character in this session' });
+    }
 
     const history = JSON.parse(session.full_history || '[]');
     if (index >= history.length) {
@@ -443,6 +454,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     if (!character) return res.status(404).json({ error: 'Character not found' });
     if (!isCharacterInSession(sessionId, characterId)) {
       return res.status(400).json({ error: 'Character is not in this session' });
+    }
+    if (!userOwnsCharacter(req.user, characterId)) {
+      return res.status(403).json({ error: 'You can only reroll POVs for characters you own' });
     }
 
     const apiConfig = getActiveApiConfig();
@@ -471,11 +485,21 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
         return res.status(502).json({ error: 'POV generation failed after retry' });
       }
 
-      entry.povs = entry.povs || {};
-      entry.povs[character.character_name] = pov;
-      history[index] = entry;
+      const latestSession = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+      const latestHistory = JSON.parse(latestSession?.full_history || '[]');
+      const latestEntry = latestHistory[index];
+      if (!latestEntry || latestEntry.role !== 'assistant') {
+        return res.status(409).json({ error: 'Target narration changed while POV was generating. Please reload and try again.' });
+      }
+      if ((latestEntry.content || '') !== (entry.content || '')) {
+        return res.status(409).json({ error: 'Target narration changed while POV was generating. Please reload and try again.' });
+      }
+
+      latestEntry.povs = latestEntry.povs || {};
+      latestEntry.povs[character.character_name] = pov;
+      latestHistory[index] = latestEntry;
       db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
-        .run(JSON.stringify(history), sessionId);
+        .run(JSON.stringify(latestHistory), sessionId);
 
       sendToSession(sessionId, 'session_updated', { id: sessionId });
       console.log(`Regenerated POV for ${character.character_name} on session ${sessionId} index ${index}`);

@@ -440,6 +440,10 @@ export function renderStoryHistory(history, indexOffset = 0) {
       const selectedCharId = document.getElementById('action-character')?.value || '';
       const currentUser = getState('currentUser');
       const isAdmin = !!(currentUser && currentUser.is_admin);
+      const selectedChar = getSelectedCharacter();
+      const canRerollSelectedPOV = !!(selectedCharId && selectedCharName && currentUser && (
+        isAdmin || (selectedChar && (selectedChar.user_id === currentUser.id || !selectedChar.user_id))
+      ));
       const povMissing = hasPOVs && selectedCharName && !entry.povs[selectedCharName];
 
       if (hasPOVs && selectedCharName && entry.povs[selectedCharName]) {
@@ -452,6 +456,7 @@ export function renderStoryHistory(history, indexOffset = 0) {
             <div class="narration-header">
               <div class="role">Your Story <span class="pov-badge">${escapeHtml(selectedCharName)}'s POV</span></div>
               <div class="narration-controls">
+                ${canRerollSelectedPOV ? `<button class="pov-regen-btn" onclick="regeneratePOV(${globalIndex}, '${escapeHtml(selectedCharId)}', this)" title="Reroll only ${escapeHtml(selectedCharName)}'s POV for this turn">↻ POV</button>` : ''}
                 <button class="pov-toggle-btn" onclick="togglePOVView(${globalIndex})" title="Switch POV view">\uD83D\uDC41\uFE0F</button>
                 <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
                 <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
@@ -498,8 +503,8 @@ export function renderStoryHistory(history, indexOffset = 0) {
         // without re-rolling the whole turn.
         const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
         const ttsContent = btoa(encodeURIComponent(entry.content));
-        const regenBtn = isAdmin && selectedCharId
-          ? `<button class="pov-regen-btn" onclick="regeneratePOV(${globalIndex}, '${escapeHtml(selectedCharId)}')" title="Regenerate ${escapeHtml(selectedCharName)}\u2019s POV for this turn">\uD83D\uDD04 POV</button>`
+        const regenBtn = canRerollSelectedPOV
+          ? `<button class="pov-regen-btn" onclick="regeneratePOV(${globalIndex}, '${escapeHtml(selectedCharId)}', this)" title="Generate ${escapeHtml(selectedCharName)}\u2019s POV for this turn">↻ POV</button>`
           : '';
         html += `
           <div class="story-entry assistant narration pov-narration pov-fallback" data-index="${globalIndex}">
@@ -582,23 +587,22 @@ function getSelectedCharacterName() {
 }
 
 /**
- * Admin: regenerate a missing per-character POV on a turn that was rendered
- * with the "POV unavailable" fallback. Calls the server endpoint and reloads
- * the session on success so the new POV renders.
+ * Regenerate one per-character POV on a narration entry. The server scopes
+ * normal players to their own characters; admins may repair any POV.
  */
-export async function regeneratePOV(index, characterId) {
+export async function regeneratePOV(index, characterId, triggerButton = null) {
   const currentSession = getState('currentSession');
   if (!currentSession) return;
-  const btn = document.querySelector(`.story-entry[data-index="${index}"] .pov-regen-btn`);
+  const btn = triggerButton || document.querySelector(`.story-entry[data-index="${index}"] .pov-regen-btn`);
   const originalLabel = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
   try {
     await api(`/api/sessions/${currentSession.id}/regenerate-pov`, 'POST', { index, characterId });
-    showNotification('POV regenerated');
+    showNotification('POV rerolled');
     await loadSession(currentSession.id);
   } catch (error) {
     console.error('Regenerate POV failed:', error);
-    showNotification('Regenerate POV failed: ' + (error.message || 'unknown error'));
+    showNotification('POV reroll failed: ' + (error.message || 'unknown error'));
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
   }
 }

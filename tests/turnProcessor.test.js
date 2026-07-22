@@ -13,7 +13,7 @@ const {
 } = require('../server/services/turnProcessor.js');
 
 const NARRATE_INSTRUCTION =
-  'Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.';
+  'Narrate the outcome of these actions in 3rd person in no more than 650 words, then add [CHOICE:] tags at the end.';
 
 describe('buildConversationMessages', () => {
   test('groups roles and formats context / action / gm_nudge; appends Narrate when window ends on user content', () => {
