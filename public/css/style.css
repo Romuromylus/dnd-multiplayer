@@ -740,6 +740,81 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   min-height: 0;
 }
 
+/* Tactical encounter: a compact, server-authoritative battle surface. */
+.tactical-combat-panel {
+  padding: 12px 14px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border-accent);
+  overflow: auto;
+}
+
+.tactical-combat-header,
+.tactical-controls,
+.music-dj-player,
+.music-dj-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tactical-combat-header { justify-content: space-between; margin: 0 auto 8px; max-width: 780px; }
+.tactical-combat-header h2 { font-size: 1rem; margin: 2px 0 0; }
+.tactical-eyebrow { color: var(--accent); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; }
+.tactical-status { display: flex; align-items: end; flex-direction: column; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+.tactical-status strong { color: var(--text-bright); font-family: var(--font-display); font-size: 0.85rem; }
+
+.tactical-initiative { max-width: 780px; margin: 0 auto 10px; display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px; }
+.initiative-chip { white-space: nowrap; padding: 3px 7px; border: 1px solid var(--border-color); background: var(--bg-light); color: var(--text-muted); font-size: 10px; font-family: var(--font-mono); border-radius: 3px; }
+.initiative-chip.party { border-left: 3px solid #4a8ed4; }
+.initiative-chip.enemy { border-left: 3px solid var(--danger); }
+.initiative-chip.active { color: var(--bg-deep); background: var(--accent); border-color: var(--accent); }
+
+.tactical-board { display: grid; grid-template-columns: repeat(var(--tactical-columns), minmax(34px, 58px)); width: max-content; max-width: 100%; margin: 0 auto; border: 2px solid var(--border-accent); background: #182024; }
+.tactical-tile { position: relative; aspect-ratio: 1; min-width: 0; padding: 0; border: 1px solid rgba(0, 0, 0, 0.3); background-size: cover; background-position: center; cursor: default; overflow: hidden; }
+.tactical-tile.terrain-plains { background-image: url('/assets/tactical/plains.webp'); }
+.tactical-tile.terrain-forest { background-image: url('/assets/tactical/forest.webp'); }
+.tactical-tile.terrain-ruins { background-image: url('/assets/tactical/ruin.webp'); }
+.tactical-tile.terrain-water { background-image: url('/assets/tactical/water.webp'); }
+.tactical-tile.terrain-wall { background-image: url('/assets/tactical/wall.webp'); }
+.tactical-tile.move-target { cursor: pointer; box-shadow: inset 0 0 0 3px rgba(71, 177, 111, 0.9); }
+.tactical-tile.attack-target { cursor: crosshair; box-shadow: inset 0 0 0 3px rgba(202, 65, 79, 0.95); }
+.tactical-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 2; }
+.tactical-token { position: absolute; inset: 14% 11%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 50%; border: 2px solid #e6edf3; box-shadow: 0 2px 5px rgba(0,0,0,0.65); color: #fff; font-weight: 800; font-family: var(--font-mono); text-shadow: 0 1px 2px #000; }
+.tactical-token.party { background: #2c6b9f; }
+.tactical-token.enemy { background: #992f3c; }
+.tactical-token.active { box-shadow: 0 0 0 3px var(--accent), 0 2px 5px rgba(0,0,0,0.65); }
+.tactical-token-name { font-size: clamp(9px, 1.2vw, 14px); }
+.tactical-unit-hp { position: absolute; bottom: 5%; left: 8%; right: 8%; height: 4px; background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.5); }
+.tactical-unit-hp span { display: block; height: 100%; background: #54b778; }
+
+.tactical-controls { max-width: 780px; justify-content: space-between; margin: 10px auto 0; flex-wrap: wrap; }
+.tactical-help { color: var(--text-muted); font-size: 12px; }
+.tactical-actions, .tactical-gm-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.tactical-actions button, .tactical-gm-actions button, .music-dj-controls button { padding: 5px 9px; min-height: 30px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--bg-light); color: var(--text); cursor: pointer; font-family: var(--font-body); font-size: 12px; }
+.tactical-actions button:hover:not(:disabled), .tactical-gm-actions button:hover, .music-dj-controls button:hover { border-color: var(--accent); color: var(--accent); }
+.tactical-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+.tactical-gm-actions { margin-left: auto; }
+.tactical-gm-actions button:last-child { color: var(--danger); }
+.tactical-log { max-width: 780px; margin: 8px auto 0; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+
+.music-dj-player { margin-left: auto; min-width: 0; max-width: 440px; font-size: 11px; }
+.music-dj-now { display: flex; gap: 6px; min-width: 0; align-items: center; }
+.music-dj-label { color: var(--accent); font-family: var(--font-mono); font-weight: 700; }
+.music-dj-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+#youtube-dj-host { width: 1px; height: 1px; overflow: hidden; }
+.music-dj-controls { gap: 4px; }
+.music-dj-controls button { min-height: 26px; padding: 3px 6px; font-size: 10px; }
+.music-dj-controls input { width: 60px; }
+
+@media (max-width: 700px) {
+  .story-topbar { display: block; }
+  .music-dj-player { margin: 7px 0 0; max-width: none; }
+  .tactical-combat-panel { padding: 10px; }
+  .tactical-board { grid-template-columns: repeat(var(--tactical-columns), minmax(29px, 1fr)); width: 100%; }
+  .tactical-controls { align-items: stretch; }
+  .tactical-gm-actions { margin-left: 0; }
+}
+
 .story-topbar {
   padding: 8px 14px;
   border-bottom: 1px solid var(--border-color);

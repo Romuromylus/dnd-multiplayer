@@ -20,6 +20,10 @@ export async function loadSettings() {
   try {
     const settings = await api('/api/settings');
     document.getElementById('max-tokens').value = settings.max_tokens_before_compact || 8000;
+    document.getElementById('youtube-dj-enabled').checked = settings.youtube_dj_enabled === 'true';
+    document.getElementById('youtube-dj-status').textContent = settings.youtube_configured
+      ? 'YouTube API key saved. Leave the field blank to keep it.'
+      : 'Add a YouTube Data API v3 key to enable playback.';
     await loadApiConfigs();
 
     // Restore TTS settings from localStorage
@@ -40,11 +44,14 @@ export async function loadSettings() {
 
 export async function saveSettings() {
   const settings = {
-    max_tokens_before_compact: document.getElementById('max-tokens').value
+    max_tokens_before_compact: document.getElementById('max-tokens').value,
+    youtube_dj_enabled: document.getElementById('youtube-dj-enabled').checked,
+    youtube_api_key: document.getElementById('youtube-api-key').value
   };
 
   try {
     await api('/api/settings', 'POST', settings);
+    document.getElementById('youtube-api-key').value = '';
     document.getElementById('settings-status').textContent = 'Settings saved successfully!';
     setTimeout(() => { document.getElementById('settings-status').textContent = ''; }, 3000);
   } catch (error) {

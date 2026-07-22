@@ -10,12 +10,13 @@ function securityHeaders(req, res, next) {
   // Content Security Policy - mitigate XSS attacks
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'", // Allow inline scripts for onclick handlers
+    "script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com", // Allow inline handlers and the YouTube IFrame API
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://i.ytimg.com",
     "connect-src 'self' ws: wss:", // Allow WebSocket connections
     "media-src 'self' blob:", // For TTS audio
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
     "frame-ancestors 'none'", // Prevent clickjacking
     "base-uri 'self'",
     "form-action 'self'"

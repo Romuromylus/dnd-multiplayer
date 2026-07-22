@@ -1,0 +1,49 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  activeUnit,
+  applyTacticalAction,
+  createTacticalCombat,
+  getReachableTiles
+} = require('../server/services/tacticalCombatService');
+
+const party = [
+  { id: 'fighter', character_name: 'Mara', class: 'Fighter', level: 3, hp: 28, max_hp: 28, ac: 16, strength: 16, dexterity: 12 },
+  { id: 'wizard', character_name: 'Orrin', class: 'Wizard', level: 3, hp: 18, max_hp: 18, ac: 12, strength: 8, dexterity: 14, intelligence: 16 }
+];
+
+const enemies = [{ id: 'goblin', name: 'Goblin', hp: 14, ac: 12, attackBonus: 4, damageDie: 6, damageBonus: 2 }];
+
+test('tactical combat starts on a living party member and owns source characters', () => {
+  const state = createTacticalCombat(party, enemies, { seed: 77, environment: 'forest' });
+  const unit = activeUnit(state);
+  assert.equal(unit.side, 'party');
+  assert.ok(unit.sourceCharacterId);
+  assert.equal(state.grid.width, 10);
+  assert.equal(state.grid.height, 8);
+});
+
+test('movement is server-validated and does not hand off the turn', () => {
+  const state = createTacticalCombat(party, enemies, { seed: 77 });
+  const unit = activeUnit(state);
+  const destination = getReachableTiles(state, unit).find(tile => tile.x !== unit.x || tile.y !== unit.y);
+  assert.ok(destination);
+  const result = applyTacticalAction(state, { type: 'move', x: destination.x, y: destination.y });
+  assert.equal(result.ok, true);
+  assert.equal(activeUnit(result.state).id, unit.id);
+  assert.equal(activeUnit(result.state).hasMoved, true);
+});
+
+test('ending a party turn resolves intervening enemies before another player turn', () => {
+  const state = createTacticalCombat(party, enemies, { seed: 77 });
+  const result = applyTacticalAction(state, { type: 'endTurn' });
+  assert.equal(result.ok, true);
+  if (!result.state.outcome) assert.equal(activeUnit(result.state).side, 'party');
+  assert.ok(result.events.some(event => event.type === 'turn') || result.state.outcome);
+});
+
+test('rejects actions outside the active character turn', () => {
+  const state = createTacticalCombat(party, enemies, { seed: 77 });
+  const result = applyTacticalAction(state, { type: 'attack', targetId: 'npc:missing' });
+  assert.equal(result.ok, false);
+});

@@ -47,6 +47,8 @@ const state = {
 
   // AI-generated choices for current turn
   pendingChoices: null,
+  activeCombat: null,
+  activeMusic: null,
 };
 
 export function getState(key) {

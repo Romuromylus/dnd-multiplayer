@@ -6,6 +6,8 @@ import { getState, setState } from './state.js';
 import { showConnectionStatus, hideConnectionStatus, showNotification, showNarratorTyping, hideNarratorTyping } from './utils/dom.js';
 import { loadCharacters } from './modules/characters.js';
 import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent, displayChoices, showTurnError } from './modules/sessions.js';
+import { handleCombatUpdate } from './modules/tacticalCombat.js';
+import { renderYouTubeDJ } from './modules/youtubeDj.js';
 import { loadSessionSummary } from './modules/settings.js';
 
 /**
@@ -225,6 +227,21 @@ export function initSocket() {
         showNotification('History was auto-compacted to save tokens!');
       }
     }
+  });
+
+  socket.off('combat_updated');
+  socket.on('combat_updated', ({ sessionId, combat }) => {
+    const currentSession = getState('currentSession');
+    if (currentSession && currentSession.id === sessionId) {
+      handleCombatUpdate(sessionId, combat);
+      updateActionFormState();
+    }
+  });
+
+  socket.off('music_updated');
+  socket.on('music_updated', ({ sessionId, music }) => {
+    const currentSession = getState('currentSession');
+    if (currentSession && currentSession.id === sessionId) renderYouTubeDJ(music);
   });
 
   // Turn processing error — show retry button

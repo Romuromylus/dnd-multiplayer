@@ -6,6 +6,8 @@
 // ============================================
 
 import { getState, setState } from '../state.js';
+import { renderTacticalCombat } from './tacticalCombat.js';
+import { renderYouTubeDJ } from './youtubeDj.js';
 import { api } from '../api.js';
 import { escapeHtml, formatContent } from '../utils/formatters.js';
 import { showNotification, scrollStoryToBottom, hideNarratorTyping, closeGameDrawer } from '../utils/dom.js';
@@ -229,12 +231,18 @@ export async function loadSession(id) {
     const data = await api(`/api/sessions/${id}`);
     setState({
       currentSession: data.session,
-      sessionCharacters: data.sessionCharacters || []
+      sessionCharacters: data.sessionCharacters || [],
+      activeCombat: data.combat || null
     });
 
     updateCharacterSelect();
     updatePartyList();
     updateInspirationDisplay();
+    updateActionFormState();
+    renderTacticalCombat(data.combat || null);
+    let music = {};
+    try { music = JSON.parse(data.session.music_state || '{}'); } catch (error) { music = {}; }
+    renderYouTubeDJ(music);
 
     const currentSession = data.session;
     document.getElementById('turn-counter').textContent = `Turn: ${currentSession.current_turn}`;
@@ -1540,6 +1548,7 @@ export function updateActionFormState() {
   const diceBtn = document.getElementById('dice-roll-btn');
   const statSelect = document.getElementById('dice-stat-select');
   const viewOnlyBanner = document.getElementById('view-only-banner');
+  const combatActive = !!getState('activeCombat');
 
   // Determine if the currently-selected character is owned by the logged-in user.
   // Non-owned characters are view-only (POV switching works, but no input/actions).
@@ -1550,11 +1559,17 @@ export function updateActionFormState() {
   const viewOnly = !isOwned;
 
   if (viewOnlyBanner) {
-    viewOnlyBanner.style.display = viewOnly ? '' : 'none';
+    viewOnlyBanner.style.display = (viewOnly || combatActive) ? '' : 'none';
+    viewOnlyBanner.textContent = combatActive
+      ? 'A tactical encounter is active. Use the battlefield controls.'
+      : 'You can switch to this character to read their POV, but you can only act as characters you own.';
   }
 
   if (submitBtn) {
-    if (viewOnly) {
+    if (combatActive) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Combat active';
+    } else if (viewOnly) {
       submitBtn.disabled = true;
       submitBtn.textContent = 'View only';
     } else if (isTurnProcessing) {
@@ -1567,14 +1582,18 @@ export function updateActionFormState() {
   }
 
   if (actionTextarea) {
-    actionTextarea.disabled = viewOnly || isTurnProcessing;
-    actionTextarea.placeholder = viewOnly
+    actionTextarea.disabled = viewOnly || isTurnProcessing || combatActive;
+    actionTextarea.placeholder = combatActive
+      ? 'Resolve the tactical encounter first.'
+      : viewOnly
       ? 'View only — you do not control this character.'
       : (isTurnProcessing ? 'Please wait for the Narrator to finish...' : 'What do you do?');
   }
 
   if (diceBtn) {
-    if (viewOnly) {
+    if (combatActive) {
+      diceBtn.disabled = true;
+    } else if (viewOnly) {
       diceBtn.disabled = true;
     } else if (isTurnProcessing) {
       diceBtn.disabled = true;
@@ -1594,7 +1613,7 @@ export function updateActionFormState() {
     }
   }
   if (statSelect) {
-    statSelect.disabled = viewOnly || isTurnProcessing;
+    statSelect.disabled = viewOnly || isTurnProcessing || combatActive;
   }
 }
 

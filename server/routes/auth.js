@@ -106,9 +106,10 @@ function createAuthRoutes(db, auth) {
     const settings = {};
     const rows = db.prepare('SELECT key, value FROM settings').all();
     rows.forEach(row => {
-      if (row.key === 'game_password' || row.key === 'admin_password') return;
+      if (row.key === 'game_password' || row.key === 'admin_password' || row.key === 'youtube_api_key') return;
       settings[row.key] = row.value;
     });
+    settings.youtube_configured = !!db.prepare("SELECT value FROM settings WHERE key = 'youtube_api_key'").get()?.value;
 
     const activeConfig = db.prepare('SELECT name, model FROM api_configs WHERE is_active = 1').get();
     settings.active_api_config = activeConfig || null;
@@ -120,10 +121,16 @@ function createAuthRoutes(db, auth) {
    * POST /api/settings  (admin only)
    */
   router.post('/settings', requireAdmin, (req, res) => {
-    const { max_tokens_before_compact } = req.body;
+    const { max_tokens_before_compact, youtube_dj_enabled, youtube_api_key } = req.body;
     const updateSetting = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
     if (max_tokens_before_compact !== undefined) {
       updateSetting.run(String(max_tokens_before_compact), 'max_tokens_before_compact');
+    }
+    if (youtube_dj_enabled !== undefined) {
+      updateSetting.run(youtube_dj_enabled ? 'true' : 'false', 'youtube_dj_enabled');
+    }
+    if (typeof youtube_api_key === 'string' && youtube_api_key.trim()) {
+      updateSetting.run(youtube_api_key.trim().slice(0, 300), 'youtube_api_key');
     }
     res.json({ success: true });
   });

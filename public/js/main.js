@@ -54,6 +54,11 @@ import './utils/modalManager.js'; // Registers Escape-to-close handler
 import { initKeyboardNavigation, updateTabAriaStates } from './utils/keyboard.js';
 import { initWeather, cycleWeather, setWeather } from './modules/weather.js';
 import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/characterBuilder.js';
+import {
+  openTacticalCombatSetup, closeTacticalCombatSetup, startTacticalCombat,
+  selectTacticalAction, tacticalTileClick, tacticalDefend, tacticalEndTurn, endTacticalCombat
+} from './modules/tacticalCombat.js';
+import { toggleDJPlayback, muteDJPlayback, setDJVolume, setDJTrack, stopDJTrack } from './modules/youtubeDj.js';
 
 // ============================================
 // Expose functions to window for onclick handlers in HTML
@@ -114,6 +119,19 @@ window.generateChoices = generateChoices;
 window.togglePOVView = togglePOVView;
 window.regeneratePOV = regeneratePOV;
 window.retryTurn = retryTurn;
+window.openTacticalCombatSetup = openTacticalCombatSetup;
+window.closeTacticalCombatSetup = closeTacticalCombatSetup;
+window.startTacticalCombat = startTacticalCombat;
+window.selectTacticalAction = selectTacticalAction;
+window.tacticalTileClick = tacticalTileClick;
+window.tacticalDefend = tacticalDefend;
+window.tacticalEndTurn = tacticalEndTurn;
+window.endTacticalCombat = endTacticalCombat;
+window.toggleDJPlayback = toggleDJPlayback;
+window.muteDJPlayback = muteDJPlayback;
+window.setDJVolume = setDJVolume;
+window.setDJTrack = setDJTrack;
+window.stopDJTrack = stopDJTrack;
 
 // Settings
 window.saveSettings = saveSettings;

@@ -6,6 +6,7 @@
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../lib/logger');
 const { estimateTokens } = require('../lib/tokens');
+const { searchYoutubeMusic } = require('./youtubeService');
 const {
   NARRATION_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
@@ -479,10 +480,17 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     generateCharacterPOV,
     generateStateTags,
     buildPOVPartyRoster,
-    buildPOVCampaignContext
+    buildPOVCampaignContext,
+    generateYoutubeDJPick
   } = require('./aiService');
   let parsedPOVs = {};
   let stateTags = '';
+  let previousMusic = {};
+  try { previousMusic = JSON.parse(session.music_state || '{}'); } catch (error) { previousMusic = {}; }
+  const musicEnabled = settings.youtube_dj_enabled === 'true' && settings.youtube_api_key;
+  const musicPickPromise = musicEnabled
+    ? generateYoutubeDJPick(apiConfig, cleanedResponse, previousMusic.query || '')
+    : Promise.resolve(null);
   if (characters.length > 0) {
     if (stream) {
       console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
@@ -522,6 +530,26 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     console.log(`Bookkeeper tags: ${stateTags ? stateTags.replace(/\n/g, ' | ') : '(none)'}`);
   }
   const hasPOVs = Object.keys(parsedPOVs).length > 0;
+  let musicState = previousMusic;
+  const musicPick = await musicPickPromise;
+  if (musicPick) {
+    try {
+      const [track] = await searchYoutubeMusic(settings.youtube_api_key, musicPick.query);
+      if (track) {
+        musicState = {
+          videoId: track.videoId,
+          title: track.title,
+          channel: track.channel,
+          thumbnail: track.thumbnail,
+          query: musicPick.query,
+          mood: musicPick.mood,
+          startedAt: new Date().toISOString()
+        };
+      }
+    } catch (error) {
+      logger.warn('YouTube DJ search failed', { sessionId, error: error.message });
+    }
+  }
 
   // Build history entry with POVs attached
   const historyEntry = { role: 'assistant', content: cleanedResponse, type: 'narration' };
@@ -590,11 +618,11 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
         [{ role: 'assistant', content: newSummary }], characters, extractAIMessage);
     }
 
-    db.prepare('UPDATE game_sessions SET story_summary = ?, full_history = ?, compacted_count = ?, total_tokens = 0, current_turn = current_turn + 1 WHERE id = ?')
-      .run(newSummary, JSON.stringify(fullHistory), newCompactedCount, sessionId);
+    db.prepare('UPDATE game_sessions SET story_summary = ?, full_history = ?, compacted_count = ?, total_tokens = 0, music_state = ?, current_turn = current_turn + 1 WHERE id = ?')
+      .run(newSummary, JSON.stringify(fullHistory), newCompactedCount, JSON.stringify(musicState), sessionId);
   } else {
-    db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ?, current_turn = current_turn + 1 WHERE id = ?')
-      .run(JSON.stringify(fullHistory), recentHistoryTokens, sessionId);
+    db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ?, music_state = ?, current_turn = current_turn + 1 WHERE id = ?')
+      .run(JSON.stringify(fullHistory), recentHistoryTokens, JSON.stringify(musicState), sessionId);
   }
 
   // Clear pending actions
@@ -610,6 +638,9 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     choices: parsedChoices,
     povs: hasPOVs ? parsedPOVs : null
   });
+  if (musicPick && musicState.videoId) {
+    sendToSession(sessionId, 'music_updated', { sessionId, music: musicState });
+  }
 
   return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
 }

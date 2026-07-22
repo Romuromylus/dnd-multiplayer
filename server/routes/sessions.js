@@ -7,6 +7,14 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { validate, validateBody, schemas } = require('../lib/validation');
 const tagParser = require('../services/tagParser');
+const logger = require('../lib/logger');
+const {
+  activeUnit,
+  applyTacticalAction,
+  createTacticalCombat,
+  getCombatSummary
+} = require('../services/tacticalCombatService');
+const { searchYoutubeMusic } = require('../services/youtubeService');
 
 /**
  * Create session router with dependencies
@@ -84,6 +92,44 @@ function createSessionRoutes(deps) {
     if (user.is_admin) return true;
     const row = db.prepare('SELECT user_id FROM characters WHERE id = ?').get(characterId);
     return !!row && row.user_id === user.id;
+  }
+
+  function getActiveCombat(sessionId) {
+    const row = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1').get(sessionId);
+    if (!row) return null;
+    try {
+      return { ...row, state: JSON.parse(row.combatants || '{}') };
+    } catch (error) {
+      logger.error('Unable to read tactical combat state', { sessionId, combatId: row.id, error: error.message });
+      return null;
+    }
+  }
+
+  function saveCombat(combat, state) {
+    db.prepare('UPDATE combats SET combatants = ?, current_turn = ?, round = ?, is_active = ? WHERE id = ?')
+      .run(JSON.stringify(state), state.turnIndex, state.round, state.outcome ? 0 : 1, combat.id);
+  }
+
+  function persistPartyHealth(state) {
+    const updateHp = db.prepare('UPDATE characters SET hp = ? WHERE id = ?');
+    for (const unit of state.units) {
+      if (unit.side === 'party' && unit.sourceCharacterId) updateHp.run(unit.hp, unit.sourceCharacterId);
+    }
+  }
+
+  function recordCombatOutcome(sessionId, state, events) {
+    if (!state.outcome) return;
+    const session = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+    if (!session) return;
+    let history = [];
+    try { history = JSON.parse(session.full_history || '[]'); } catch (error) { history = []; }
+    history.push({
+      role: 'assistant',
+      type: 'combat',
+      content: getCombatSummary(state, events),
+      timestamp: new Date().toISOString()
+    });
+    db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), sessionId);
   }
 
   /**
@@ -241,7 +287,111 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(req.params.id);
     const sessionChars = getSessionCharacters(req.params.id);
 
-    res.json({ session, pendingActions, sessionCharacters: sessionChars });
+    res.json({ session, pendingActions, sessionCharacters: sessionChars, combat: getActiveCombat(req.params.id) });
+  });
+
+  /**
+   * POST /api/sessions/:id/combat
+   * Start a server-authoritative tactical encounter. The GM supplies enemies;
+   * party units always come from the current session characters.
+   */
+  router.post('/:id/combat', requireAdmin, (req, res) => {
+    const sessionId = req.params.id;
+    const session = db.prepare('SELECT id FROM game_sessions WHERE id = ?').get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (getActiveCombat(sessionId)) return res.status(409).json({ error: 'An encounter is already active.' });
+
+    const rawEnemies = Array.isArray(req.body?.enemies) ? req.body.enemies : [];
+    const enemies = rawEnemies.slice(0, 12).map((enemy, index) => ({
+      id: validate.sanitizeString(enemy?.id || String(index + 1), 60),
+      name: validate.sanitizeString(enemy?.name || `Enemy ${index + 1}`, 80),
+      hp: Number(enemy?.hp),
+      ac: Number(enemy?.ac),
+      attackBonus: Number(enemy?.attackBonus),
+      damageBonus: Number(enemy?.damageBonus),
+      damageDie: Number(enemy?.damageDie),
+      movement: Number(enemy?.movement),
+      range: Number(enemy?.range),
+      initiativeBonus: Number(enemy?.initiativeBonus)
+    }));
+    if (!enemies.length) return res.status(400).json({ error: 'Add at least one enemy to begin combat.' });
+    const characters = getSessionCharacters(sessionId);
+    if (!characters.length) return res.status(400).json({ error: 'This session has no party members.' });
+
+    try {
+      const name = validate.sanitizeString(req.body?.name || 'Tactical Encounter', 120);
+      const environment = validate.sanitizeString(req.body?.environment || 'plains', 50);
+      const state = createTacticalCombat(characters, enemies, { environment });
+      const combat = { id: uuidv4(), session_id: sessionId, name, is_active: 1, current_turn: state.turnIndex, round: state.round };
+      db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(combat.id, sessionId, name, 1, state.turnIndex, state.round, JSON.stringify(state));
+      db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
+      const payload = { ...combat, state };
+      sendToSession(sessionId, 'combat_updated', { sessionId, combat: payload });
+      res.status(201).json({ combat: payload });
+    } catch (error) {
+      logger.error('Unable to start tactical combat', { sessionId, error: error.message });
+      res.status(400).json({ error: error.message || 'Unable to start tactical combat.' });
+    }
+  });
+
+  /** POST /api/sessions/:id/combat/action - execute the current owner's tactical action. */
+  router.post('/:id/combat/action', requireUser, (req, res) => {
+    const sessionId = req.params.id;
+    if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
+    const combat = getActiveCombat(sessionId);
+    if (!combat) return res.status(404).json({ error: 'No active tactical encounter.' });
+    if (Number.isInteger(req.body?.version) && req.body.version !== combat.state.version) {
+      return res.status(409).json({ error: 'The combat changed. Reloading the latest state.', combat });
+    }
+    const current = activeUnit(combat.state);
+    if (!current || current.side !== 'party' || !current.sourceCharacterId) return res.status(409).json({ error: 'Wait for the next player turn.', combat });
+    if (!userOwnsCharacter(req.user, current.sourceCharacterId)) return res.status(403).json({ error: 'Only the player who owns the active character can act.' });
+
+    const result = applyTacticalAction(combat.state, req.body?.action);
+    if (!result.ok) return res.status(400).json({ error: result.error, combat });
+    saveCombat(combat, result.state);
+    persistPartyHealth(result.state);
+    recordCombatOutcome(sessionId, result.state, result.events);
+    const payload = { ...combat, is_active: result.state.outcome ? 0 : 1, round: result.state.round, state: result.state };
+    sendToSession(sessionId, 'combat_updated', { sessionId, combat: result.state.outcome ? null : payload, events: result.events });
+    res.json({ combat: result.state.outcome ? null : payload, events: result.events, outcome: result.state.outcome || null });
+  });
+
+  /** POST /api/sessions/:id/combat/end - GM can end an encounter early. */
+  router.post('/:id/combat/end', requireAdmin, (req, res) => {
+    const sessionId = req.params.id;
+    const combat = getActiveCombat(sessionId);
+    if (!combat) return res.status(404).json({ error: 'No active tactical encounter.' });
+    db.prepare('UPDATE combats SET is_active = 0 WHERE id = ?').run(combat.id);
+    sendToSession(sessionId, 'combat_updated', { sessionId, combat: null });
+    res.json({ success: true });
+  });
+
+  /** POST /api/sessions/:id/music - GM manual override for the shared YouTube DJ. */
+  router.post('/:id/music', requireAdmin, async (req, res) => {
+    const sessionId = req.params.id;
+    const query = validate.sanitizeString(req.body?.query || '', 180);
+    if (!query) return res.status(400).json({ error: 'Enter a song or soundtrack search.' });
+    const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'youtube_api_key'").get()?.value || '';
+    try {
+      const [track] = await searchYoutubeMusic(apiKey, query);
+      if (!track) return res.status(404).json({ error: 'No embeddable YouTube result was found.' });
+      const music = { ...track, query, mood: 'GM selection', startedAt: new Date().toISOString() };
+      db.prepare('UPDATE game_sessions SET music_state = ? WHERE id = ?').run(JSON.stringify(music), sessionId);
+      sendToSession(sessionId, 'music_updated', { sessionId, music });
+      res.json({ music });
+    } catch (error) {
+      logger.warn('Manual YouTube DJ selection failed', { sessionId, error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/:id/music/stop', requireAdmin, (req, res) => {
+    const sessionId = req.params.id;
+    db.prepare("UPDATE game_sessions SET music_state = '{}' WHERE id = ?").run(sessionId);
+    sendToSession(sessionId, 'music_updated', { sessionId, music: {} });
+    res.json({ success: true });
   });
 
   /**
@@ -280,6 +430,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     if (!character_id) {
       return res.status(400).json({ error: 'character_id is required' });
+    }
+
+    if (getActiveCombat(sessionId)) {
+      return res.status(409).json({ error: 'A tactical encounter is active. Use the battlefield controls until combat ends.' });
     }
 
     if (processingSessions.has(sessionId)) {
@@ -353,6 +507,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    */
   router.post('/:id/process', requireAdmin, async (req, res) => {
     const sessionId = req.params.id;
+
+    if (getActiveCombat(sessionId)) {
+      return res.status(409).json({ error: 'A tactical encounter is active. Resolve it before processing narration.' });
+    }
 
     if (processingSessions.has(sessionId)) {
       return res.status(409).json({ error: 'Turn is already being processed.', processing: true });
@@ -595,6 +753,10 @@ RULES:
   router.post('/:id/reroll', requireAdmin, async (req, res) => {
     const sessionId = req.params.id;
 
+    if (getActiveCombat(sessionId)) {
+      return res.status(409).json({ error: 'A tactical encounter is active. Resolve it before rerolling narration.' });
+    }
+
     if (processingSessions.has(sessionId)) {
       return res.status(409).json({
         error: 'Turn is already being processed.',
@@ -719,6 +881,10 @@ RULES:
   router.post('/:id/auto-reply', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     const { character_id, context } = req.body;
+
+    if (getActiveCombat(sessionId)) {
+      return res.status(409).json({ error: 'A tactical encounter is active. Use the battlefield controls instead.' });
+    }
 
     if (processingSessions.has(sessionId)) {
       return res.status(409).json({

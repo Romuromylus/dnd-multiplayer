@@ -22,6 +22,31 @@ const POV_CONTEXT_MAX_CHARS = 7000;
 const POV_CHARACTER_FIELD_MAX_CHARS = 1200;
 const POV_CORRECTION_NOTE_MAX_CHARS = 1000;
 
+async function generateYoutubeDJPick(aiConfig, sceneContent, previousTrack = '') {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are the YouTube DJ for a multiplayer fantasy roleplaying game. Pick ONE fresh, immersive, loopable music search query for the latest narrated scene. Favor instrumental, ambient, soundtrack, OST, extended, or 1 hour music. Never pick lyrics-forward pop, memes, Shorts, reaction videos, or compilations. Change the track every turn, even when the mood is similar. Return JSON only: {"query":"...","mood":"..."}.`
+    },
+    {
+      role: 'user',
+      content: `Previous track query: ${truncatePromptText(previousTrack, 180) || 'None'}\n\nLatest scene:\n${truncatePromptText(sceneContent, 5000)}`
+    }
+  ];
+  try {
+    const data = await callAI(aiConfig, messages, { maxTokens: 180, temperature: 0.8, timeoutMs: 45000 });
+    const raw = extractAIMessage(data).trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[0]) : null;
+    const query = truncatePromptText(parsed?.query, 180);
+    const mood = truncatePromptText(parsed?.mood, 80);
+    return query ? { query, mood: mood || 'Scene music' } : null;
+  } catch (error) {
+    logger.warn('YouTube DJ pick failed', { error: error.message });
+    return null;
+  }
+}
+
 function compactPromptText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -968,6 +993,7 @@ module.exports = {
   buildPOVPartyRoster,
   buildPOVCampaignContext,
   buildPOVIdentityNotes,
+  generateYoutubeDJPick,
   generateStateTags,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,

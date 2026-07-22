@@ -67,6 +67,7 @@ function initializeTables() {
       current_turn INTEGER DEFAULT 0,
       total_tokens INTEGER DEFAULT 0,
       is_active INTEGER DEFAULT 1,
+      music_state TEXT DEFAULT '{}',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -204,6 +205,7 @@ function runMigrations() {
   const sessionMigrations = [
     { col: 'compacted_count', sql: 'ALTER TABLE game_sessions ADD COLUMN compacted_count INTEGER DEFAULT 0' },
     { col: 'scenario', sql: "ALTER TABLE game_sessions ADD COLUMN scenario TEXT DEFAULT 'classic_fantasy'" },
+    { col: 'music_state', sql: "ALTER TABLE game_sessions ADD COLUMN music_state TEXT DEFAULT '{}'" },
   ];
 
   for (const { col, sql } of sessionMigrations) {
@@ -401,6 +403,8 @@ function initializeSettings() {
   initSetting.run('api_key', '');
   initSetting.run('api_model', 'gpt-4');
   initSetting.run('max_tokens_before_compact', '8000');
+  initSetting.run('youtube_dj_enabled', 'false');
+  initSetting.run('youtube_api_key', '');
 }
 
 /**

@@ -112,6 +112,7 @@
         <details class="drawer-section utility-menu">
           <summary>Tools</summary>
           <div class="utility-buttons">
+            <button onclick="openTacticalCombatSetup()" class="btn-secondary">Start Encounter</button>
             <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
             <button onclick="rerollLastResponse()" class="btn-secondary">Reroll Last</button>
             <button onclick="recalculateXP()" class="btn-secondary">Recalc XP</button>
@@ -130,7 +131,10 @@
             <span id="waiting-counter"><svg width="12" height="12"><use href="#icon-campfire"/></svg> Waiting: 0</span>
             <button id="weather-toggle-btn" class="btn-weather" onclick="cycleWeather()" aria-label="Toggle weather effects">&#9748;</button>
           </div>
+          <div id="music-dj-player" class="music-dj-player" hidden></div>
         </div>
+
+        <section id="tactical-combat-panel" class="tactical-combat-panel" hidden aria-label="Tactical encounter"></section>
 
         <div id="story-container">
           <canvas id="weather-canvas" aria-hidden="true"></canvas>
@@ -481,6 +485,17 @@
         </div>
         <p class="settings-note">DM Instructions are built-in and automatically updated with new features (XP tracking, dice rolling, etc.)</p>
 
+        <h2>YouTube DJ</h2>
+        <p class="settings-note">Picks a new shared soundtrack after every narrated turn. Players receive the same track in real time; each player keeps their own volume.</p>
+        <div class="form-group checkbox-group">
+          <label><input type="checkbox" id="youtube-dj-enabled"> Enable YouTube DJ</label>
+        </div>
+        <div class="form-group">
+          <label for="youtube-api-key">YouTube Data API Key</label>
+          <input type="password" id="youtube-api-key" placeholder="Paste a key only to add or replace it">
+        </div>
+        <p id="youtube-dj-status" class="settings-note"></p>
+
         <h2>Text-to-Speech (TTS)</h2>
         <p class="settings-note">AI-powered narration for DM messages. Click the speaker icon on any DM message to hear it read aloud.</p>
         <div class="form-group">
@@ -581,6 +596,35 @@
   </div>
 
   <!-- Character Edit/Level Up Modal -->
+  <div id="combat-setup-modal" class="modal" role="dialog" aria-modal="true" aria-label="Start tactical encounter">
+    <div class="modal-content combat-setup-modal-content">
+      <button class="modal-close" onclick="closeTacticalCombatSetup()" aria-label="Close dialog">&times;</button>
+      <h2>Start Encounter</h2>
+      <div class="form-group">
+        <label for="combat-name">Encounter Name</label>
+        <input type="text" id="combat-name" value="Tactical Encounter" maxlength="120">
+      </div>
+      <div class="form-group">
+        <label for="combat-environment">Battlefield</label>
+        <select id="combat-environment">
+          <option value="plains">Plains</option>
+          <option value="forest">Forest</option>
+          <option value="dungeon">Dungeon</option>
+          <option value="ruins">Ruins</option>
+          <option value="water">Coast / Water</option>
+          <option value="city">City</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="combat-enemies">Enemies</label>
+        <textarea id="combat-enemies" rows="6" placeholder="Goblin | 12 | 13 | 4 | 6 | 2&#10;Goblin | 12 | 13 | 4 | 6 | 2"></textarea>
+        <p class="settings-note">One per line: Name | HP | AC | Attack Bonus | Damage Die | Damage Bonus</p>
+      </div>
+      <button onclick="startTacticalCombat()" class="btn-primary" id="start-combat-btn">Begin Encounter</button>
+      <p id="combat-setup-status" class="settings-note"></p>
+    </div>
+  </div>
+
   <div id="char-modal" class="modal" role="dialog" aria-modal="true" aria-label="Character edit">
     <div class="modal-content">
       <button class="modal-close" onclick="closeModal()" aria-label="Close dialog">&times;</button>
