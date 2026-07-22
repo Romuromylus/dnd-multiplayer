@@ -449,7 +449,8 @@ function renderSceneControls(entry, globalIndex, selectedChar, canIllustrate, is
     controls.push(`<button class="pov-image-btn" onclick="generatePOVImage(${globalIndex}, '${escapeHtml(selectedChar.id)}', this)" title="${label} this POV using ${escapeHtml(selectedChar.character_name)}'s avatar">${label}</button>`);
   }
   if (sceneUrl) {
-    controls.push(`<a class="story-scene-view" href="${escapeHtml(sceneUrl)}" target="_blank" rel="noopener" title="Open the full scene image">View Scene</a>`);
+    controls.push('<button class="story-minimize-btn" onclick="toggleStoryMinimize(this)" aria-expanded="true" title="Minimize the narration panel">Minimize</button>');
+    controls.push(`<a class="story-scene-view" href="${escapeHtml(sceneUrl)}" target="_blank" rel="noopener" title="Open the full scene image">See Full Picture</a>`);
   }
   return controls.join('');
 }
@@ -673,6 +674,15 @@ export function toggleStoryLogs(triggerButton = null) {
   const button = triggerButton || container.querySelector('.story-logs-btn');
   if (button) button.textContent = opening ? 'Close Logs' : 'Logs';
   if (!opening) container.scrollTop = container.scrollHeight;
+}
+
+export function toggleStoryMinimize(triggerButton) {
+  const entry = triggerButton?.closest('.active-scene-entry');
+  if (!entry) return;
+  const minimized = entry.classList.toggle('story-minimized');
+  triggerButton.textContent = minimized ? 'Restore' : 'Minimize';
+  triggerButton.setAttribute('aria-expanded', minimized ? 'false' : 'true');
+  triggerButton.title = minimized ? 'Restore the narration panel' : 'Minimize the narration panel';
 }
 
 export async function generatePOVImage(index, characterId, triggerButton = null) {

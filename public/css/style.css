@@ -4269,6 +4269,19 @@ button { cursor: pointer; }
 #story-container:not(.logs-open) .active-scene-entry .narration-controls { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 #story-container:not(.logs-open) .active-scene-entry .narration-controls button { opacity: 0.82; }
 
+#story-container:not(.logs-open) .active-scene-entry.story-minimized {
+  max-height: none;
+  overflow: hidden;
+  padding: 10px 12px;
+}
+
+#story-container:not(.logs-open) .active-scene-entry.story-minimized > .content,
+#story-container:not(.logs-open) .active-scene-entry.story-minimized > .pov-all-container,
+#story-container:not(.logs-open) .active-scene-entry.story-minimized > .pov-section,
+#story-container:not(.logs-open) .active-scene-entry.story-minimized > .story-scene-thumbnail {
+  display: none;
+}
+
 #story-container.logs-open {
   justify-content: flex-start;
   overflow-y: auto;
@@ -4304,6 +4317,7 @@ button { cursor: pointer; }
 
 .story-logs-btn,
 .pov-image-btn,
+.story-minimize-btn,
 .story-scene-view {
   display: inline-flex;
   align-items: center;
@@ -4324,6 +4338,7 @@ button { cursor: pointer; }
 .pov-image-btn { border-color: rgba(var(--accent-rgb), 0.58) !important; color: var(--accent-hover) !important; }
 .story-logs-btn:hover,
 .pov-image-btn:hover,
+.story-minimize-btn:hover,
 .story-scene-view:hover { background: var(--bg-elevated) !important; }
 .pov-image-btn:disabled { opacity: 0.5 !important; cursor: wait; }
 
@@ -4380,6 +4395,7 @@ button { cursor: pointer; }
   }
   .story-logs-btn,
   .pov-image-btn,
+  .story-minimize-btn,
   .story-scene-view { min-height: 32px; }
   .combat-mode-active .tactical-board { max-height: 58vh; }
 }
