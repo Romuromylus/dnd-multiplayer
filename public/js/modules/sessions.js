@@ -781,6 +781,26 @@ function renderPlayerActionsGroup(actions, indices = []) {
 // Streaming support
 // ============================================
 
+const INTERNAL_STREAM_TAGS = ['CHOICE', 'HP', 'XP', 'MONEY', 'GOLD', 'ITEM', 'SPELL', 'AC', 'REST'];
+let _streamBuffer = '';
+
+function sanitizeStreamingText(text) {
+  let clean = String(text || '').replace(
+    /\[(?:CHOICE|HP|XP|MONEY|GOLD|ITEM|SPELL|AC|REST):[^\]]*\]/gi,
+    ''
+  );
+  const openBracket = clean.lastIndexOf('[');
+  if (openBracket >= 0 && clean.indexOf(']', openBracket) === -1) {
+    const fragment = clean.slice(openBracket).toUpperCase();
+    const isInternalPrefix = INTERNAL_STREAM_TAGS.some(tag => {
+      const prefix = `[${tag}:`;
+      return prefix.startsWith(fragment) || fragment.startsWith(prefix);
+    });
+    if (isInternalPrefix) clean = clean.slice(0, openBracket);
+  }
+  return clean.replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
 /**
  * Append a text chunk from AI streaming to the story container.
  * Creates a temporary streaming element if one doesn't exist.
@@ -791,6 +811,7 @@ export function appendStreamChunk(text) {
 
   let streamEl = document.getElementById('streaming-response');
   if (!streamEl) {
+    _streamBuffer = '';
     historyContainer.querySelectorAll('.active-scene-entry').forEach(entry => entry.classList.remove('active-scene-entry'));
     // Create a temporary streaming element
     streamEl = document.createElement('div');
@@ -808,8 +829,8 @@ export function appendStreamChunk(text) {
 
   const contentEl = streamEl.querySelector('.streaming-content');
   if (contentEl) {
-    // Append text with typewriter effect by adding character by character
-    contentEl.textContent += text;
+    _streamBuffer += text;
+    contentEl.textContent = sanitizeStreamingText(_streamBuffer);
   }
 
   // Auto-scroll to bottom
@@ -828,6 +849,7 @@ export function finalizeStreamedContent() {
   if (streamEl) {
     streamEl.remove();
   }
+  _streamBuffer = '';
 }
 
 // ============================================

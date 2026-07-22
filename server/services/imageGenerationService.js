@@ -2,10 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { validateEndpointSafety } = require('./aiService');
+const logger = require('../lib/logger');
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_TIMEOUT_MS = 5 * 60 * 1000;
 const POV_SCENE_DIR = path.join(__dirname, '../../data/uploads/pov-scenes');
+const povImageJobs = new Map();
+let povImageQueue = Promise.resolve();
 
 function normalizeProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
@@ -224,10 +227,13 @@ function savePOVSceneImage(image, sessionId) {
 
 function deletePOVSceneImage(imageUrl) {
   const match = String(imageUrl || '').match(/^\/uploads\/pov-scenes\/([A-Za-z0-9-]+)\/([A-Za-z0-9.-]+)$/);
-  if (!match) return;
+  if (!match) return false;
   const filePath = path.join(POV_SCENE_DIR, match[1], match[2]);
-  try { fs.unlinkSync(filePath); } catch (error) {
-    if (error.code !== 'ENOENT') return;
+  try {
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (error) {
+    return false;
   }
 }
 
@@ -243,6 +249,190 @@ function deleteSessionPOVScenes(sessionId) {
   try { fs.rmSync(path.join(POV_SCENE_DIR, safeSessionId), { recursive: true, force: true }); } catch {}
 }
 
+function loadPOVImageSettings(db) {
+  const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (
+    'pov_image_enabled', 'pov_image_auto_enabled', 'pov_image_provider',
+    'pov_image_endpoint', 'pov_image_api_key', 'pov_image_model',
+    'pov_image_style_prompt'
+  )`).all();
+  return Object.fromEntries(rows.map(row => [row.key, row.value]));
+}
+
+async function generateAndPersistPOVScene(options) {
+  const {
+    db, aiService, sessionId, index, character, aiConfig,
+    settings = loadPOVImageSettings(db)
+  } = options;
+  const session = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+  if (!session) throw new Error('Session not found');
+  const history = JSON.parse(session.full_history || '[]');
+  const entry = history[index];
+  if (!entry || entry.role !== 'assistant') throw new Error('Target entry is not a narration');
+  const povContent = entry.povs?.[character.character_name] || entry.content || '';
+  if (!povContent.trim()) throw new Error('This POV has no narration to illustrate');
+  if (settings.pov_image_enabled !== 'true') throw new Error('POV scene images are disabled in Admin Settings');
+  if (!settings.pov_image_endpoint || !settings.pov_image_api_key || !settings.pov_image_model) {
+    throw new Error('POV image generation is not fully configured in Admin Settings');
+  }
+  if (!aiConfig?.api_key) throw new Error('No active narration API configuration');
+
+  let generatedUrl = null;
+  try {
+    const prompt = await aiService.generatePOVImagePrompt(
+      { endpoint: aiConfig.endpoint, api_key: aiConfig.api_key, model: aiConfig.model },
+      character,
+      povContent,
+      settings.pov_image_style_prompt || ''
+    );
+    const reference = loadCharacterReference(character);
+    const image = await generatePOVSceneImage({
+      provider: settings.pov_image_provider,
+      endpoint: settings.pov_image_endpoint,
+      apiKey: settings.pov_image_api_key,
+      model: settings.pov_image_model
+    }, prompt, reference);
+    generatedUrl = savePOVSceneImage(image, sessionId);
+
+    const latestSession = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+    const latestHistory = JSON.parse(latestSession?.full_history || '[]');
+    const latestEntry = latestHistory[index];
+    const latestPov = latestEntry?.povs?.[character.character_name] || latestEntry?.content || '';
+    if (!latestEntry || latestEntry.role !== 'assistant' || latestPov !== povContent) {
+      throw new Error('The POV changed while its image was generating. Please try again.');
+    }
+
+    const oldImageUrl = latestEntry.povImages?.[character.id]?.url;
+    latestEntry.povImages = latestEntry.povImages || {};
+    latestEntry.povImages[character.id] = {
+      url: generatedUrl,
+      prompt,
+      characterName: character.character_name,
+      createdAt: new Date().toISOString(),
+      usedAvatarReference: !!reference
+    };
+    latestHistory[index] = latestEntry;
+    db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(latestHistory), sessionId);
+    if (oldImageUrl && oldImageUrl !== generatedUrl) deletePOVSceneImage(oldImageUrl);
+    generatedUrl = null;
+    return latestEntry.povImages[character.id];
+  } catch (error) {
+    if (generatedUrl) deletePOVSceneImage(generatedUrl);
+    throw error;
+  }
+}
+
+function queuePOVSceneGeneration(options) {
+  const jobKey = `${options.sessionId}:${options.index}:${options.character.id}`;
+  const existing = povImageJobs.get(jobKey);
+  if (existing) return { started: false, promise: existing };
+
+  const job = povImageQueue
+    .catch(() => {})
+    .then(() => generateAndPersistPOVScene(options));
+  const trackedJob = job.finally(() => povImageJobs.delete(jobKey));
+  povImageJobs.set(jobKey, trackedJob);
+  povImageQueue = trackedJob.catch(() => {});
+  return { started: true, promise: trackedJob };
+}
+
+function queueAutoPOVScenes(options) {
+  const { db, sessionId, index, characters, sendToSession } = options;
+  const settings = loadPOVImageSettings(db);
+  if (settings.pov_image_enabled !== 'true' || settings.pov_image_auto_enabled !== 'true') return 0;
+  if (!settings.pov_image_endpoint || !settings.pov_image_api_key || !settings.pov_image_model) return 0;
+
+  let queued = 0;
+  for (const character of characters || []) {
+    const result = queuePOVSceneGeneration({ ...options, character, settings });
+    if (!result.started) continue;
+    queued++;
+    result.promise
+      .then(() => sendToSession(sessionId, 'session_updated', { id: sessionId, reason: 'pov_image' }))
+      .catch(error => logger.error('Automatic POV scene image generation failed', {
+        sessionId,
+        characterId: character.id,
+        error: error.message
+      }));
+  }
+  return queued;
+}
+
+function prunePOVSceneImages(db, keepRecentTurns = 3) {
+  const keepCount = Math.max(1, Math.min(10, Number.parseInt(keepRecentTurns, 10) || 3));
+  const retainedUrls = new Set();
+  let removedImages = 0;
+  let removedFiles = 0;
+  let sessionsUpdated = 0;
+
+  const sessions = db.prepare('SELECT id, full_history FROM game_sessions').all();
+  for (const session of sessions) {
+    let history;
+    try { history = JSON.parse(session.full_history || '[]'); } catch (error) { continue; }
+    const illustratedIndexes = history
+      .map((entry, index) => Object.keys(entry?.povImages || {}).length ? index : -1)
+      .filter(index => index >= 0);
+    const keptIndexes = new Set(illustratedIndexes.slice(-keepCount));
+    let changed = false;
+
+    for (const index of keptIndexes) {
+      for (const scene of Object.values(history[index].povImages || {})) {
+        if (scene?.url) retainedUrls.add(scene.url);
+      }
+    }
+
+    for (const index of illustratedIndexes) {
+      const scenes = Object.values(history[index].povImages || {});
+      if (keptIndexes.has(index)) continue;
+      for (const scene of scenes) {
+        if (scene?.url && !retainedUrls.has(scene.url) && deletePOVSceneImage(scene.url)) removedFiles++;
+        removedImages++;
+      }
+      delete history[index].povImages;
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), session.id);
+      sessionsUpdated++;
+    }
+  }
+
+  if (fs.existsSync(POV_SCENE_DIR)) {
+    for (const directory of fs.readdirSync(POV_SCENE_DIR, { withFileTypes: true })) {
+      if (!directory.isDirectory() || !/^[A-Za-z0-9-]+$/.test(directory.name)) continue;
+      const directoryPath = path.join(POV_SCENE_DIR, directory.name);
+      for (const file of fs.readdirSync(directoryPath, { withFileTypes: true })) {
+        if (!file.isFile() || !/^[A-Za-z0-9.-]+$/.test(file.name)) continue;
+        const imageUrl = `/uploads/pov-scenes/${directory.name}/${file.name}`;
+        if (retainedUrls.has(imageUrl)) continue;
+        try {
+          fs.unlinkSync(path.join(directoryPath, file.name));
+          removedFiles++;
+        } catch (error) {}
+      }
+      try {
+        if (fs.readdirSync(directoryPath).length === 0) fs.rmdirSync(directoryPath);
+      } catch (error) {}
+    }
+  }
+
+  return {
+    keepRecentTurns: keepCount,
+    keptImages: retainedUrls.size,
+    removedImages,
+    removedFiles,
+    sessionsUpdated
+  };
+}
+
+function queuePOVImageCleanup(db, keepRecentTurns = 3) {
+  const cleanup = povImageQueue
+    .catch(() => {})
+    .then(() => prunePOVSceneImages(db, keepRecentTurns));
+  povImageQueue = cleanup.catch(() => {});
+  return cleanup;
+}
+
 module.exports = {
   normalizeProvider,
   buildEndpoint,
@@ -253,5 +443,11 @@ module.exports = {
   savePOVSceneImage,
   deletePOVSceneImage,
   deleteEntryPOVImages,
-  deleteSessionPOVScenes
+  deleteSessionPOVScenes,
+  loadPOVImageSettings,
+  generateAndPersistPOVScene,
+  queuePOVSceneGeneration,
+  queueAutoPOVScenes,
+  prunePOVSceneImages,
+  queuePOVImageCleanup
 };

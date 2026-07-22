@@ -406,6 +406,7 @@ function initializeSettings() {
   initSetting.run('youtube_dj_enabled', 'false');
   initSetting.run('youtube_api_key', '');
   initSetting.run('pov_image_enabled', 'false');
+  initSetting.run('pov_image_auto_enabled', 'false');
   initSetting.run('pov_image_provider', 'openai');
   initSetting.run('pov_image_endpoint', 'https://api.openai.com/v1');
   initSetting.run('pov_image_api_key', '');

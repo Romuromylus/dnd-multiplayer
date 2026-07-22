@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../lib/logger');
 const { estimateTokens } = require('../lib/tokens');
 const { searchYoutubeMusic } = require('./youtubeService');
+const { queueAutoPOVScenes } = require('./imageGenerationService');
 const {
   NARRATION_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
@@ -236,9 +237,8 @@ function planCompaction(fullHistory, compactedCount, storySummary, maxTokens) {
 /**
  * Core AI turn processor — shared implementation behind processAITurn (non-streaming)
  * and streamAITurn (SSE streaming). The two paths are identical except for how the AI
- * response is acquired (single call vs streamed chunks), one extra "Converting to POV"
- * progress marker on the stream path, and cosmetic debug-log strings. Behavior on each
- * path is preserved exactly; the `options.stream` flag selects the path.
+ * response is acquired (single call vs streamed chunks) and cosmetic debug-log strings.
+ * The `options.stream` flag selects the path.
  * @param {Object} deps - Dependencies
  * @param {Object} deps.db - Database instance
  * @param {Object} deps.io - Socket.IO instance
@@ -494,7 +494,6 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   if (characters.length > 0) {
     if (stream) {
       console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
-      sendToSession(sessionId, 'turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
     } else {
       console.log(`Converting scene to POV for ${characters.length} characters...`);
     }
@@ -637,6 +636,15 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     compacted: plan.shouldCompact,
     choices: parsedChoices,
     povs: hasPOVs ? parsedPOVs : null
+  });
+  queueAutoPOVScenes({
+    db,
+    aiService,
+    sessionId,
+    index: fullHistory.length - 1,
+    characters,
+    aiConfig,
+    sendToSession
   });
   if (musicPick && musicState.videoId) {
     sendToSession(sessionId, 'music_updated', { sessionId, music: musicState });

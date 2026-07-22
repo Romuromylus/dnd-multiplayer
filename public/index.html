@@ -497,9 +497,12 @@
         <p id="youtube-dj-status" class="settings-note"></p>
 
         <h2>POV Scene Images</h2>
-        <p class="settings-note">Players can illustrate their current POV on demand. The active character avatar is sent as the likeness reference, and the finished scene becomes the shared story-stage background for that POV.</p>
+        <p class="settings-note">Players can illustrate their current POV on demand, or the server can queue every POV automatically. The active character avatar is sent as the likeness reference, and each finished scene appears for everyone in real time.</p>
         <div class="form-group checkbox-group">
           <label><input type="checkbox" id="pov-image-enabled"> Enable POV scene images</label>
+        </div>
+        <div class="form-group checkbox-group">
+          <label><input type="checkbox" id="pov-image-auto-enabled"> Automatically illustrate every character POV after each turn</label>
         </div>
         <div class="form-group">
           <label for="pov-image-provider">Image API Type</label>
@@ -526,6 +529,10 @@
           <textarea id="pov-image-style-prompt" rows="3" maxlength="1000" placeholder="Cinematic fantasy illustration, grounded detail, dramatic natural lighting..."></textarea>
         </div>
         <p id="pov-image-status" class="settings-note"></p>
+        <div class="form-group">
+          <button type="button" id="pov-image-cleanup-btn" class="btn-secondary" onclick="cleanupPOVImages()">Clear older saved images</button>
+        </div>
+        <p class="settings-note">Keeps the latest 3 illustrated turns in each campaign and removes older or orphaned image files.</p>
 
         <h2>Text-to-Speech (TTS)</h2>
         <p class="settings-note">AI-powered narration for DM messages. Click the speaker icon on any DM message to hear it read aloud.</p>

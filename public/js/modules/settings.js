@@ -25,6 +25,7 @@ export async function loadSettings() {
       ? 'YouTube API key saved. Leave the field blank to keep it.'
       : 'Add a YouTube Data API v3 key to enable playback.';
     document.getElementById('pov-image-enabled').checked = settings.pov_image_enabled === 'true';
+    document.getElementById('pov-image-auto-enabled').checked = settings.pov_image_auto_enabled === 'true';
     document.getElementById('pov-image-provider').value = settings.pov_image_provider || 'openai';
     document.getElementById('pov-image-endpoint').value = settings.pov_image_endpoint || 'https://api.openai.com/v1';
     document.getElementById('pov-image-model').value = settings.pov_image_model || 'gpt-image-1';
@@ -56,6 +57,7 @@ export async function saveSettings() {
     youtube_dj_enabled: document.getElementById('youtube-dj-enabled').checked,
     youtube_api_key: document.getElementById('youtube-api-key').value,
     pov_image_enabled: document.getElementById('pov-image-enabled').checked,
+    pov_image_auto_enabled: document.getElementById('pov-image-auto-enabled').checked,
     pov_image_provider: document.getElementById('pov-image-provider').value,
     pov_image_endpoint: document.getElementById('pov-image-endpoint').value,
     pov_image_api_key: document.getElementById('pov-image-api-key').value,
@@ -71,6 +73,29 @@ export async function saveSettings() {
     setTimeout(() => { document.getElementById('settings-status').textContent = ''; }, 3000);
   } catch (error) {
     document.getElementById('settings-status').textContent = 'Failed to save settings';
+  }
+}
+
+export async function cleanupPOVImages() {
+  if (!confirm('Remove older POV images while keeping the latest 3 illustrated turns in each campaign?')) return;
+  const button = document.getElementById('pov-image-cleanup-btn');
+  const status = document.getElementById('pov-image-status');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Cleaning...';
+  }
+  try {
+    const result = await api('/api/settings/pov-images/cleanup', 'POST');
+    if (status) {
+      status.textContent = `Cleanup complete: removed ${result.removedImages} saved scenes and ${result.removedFiles} files; kept ${result.keptImages} recent scenes.`;
+    }
+  } catch (error) {
+    if (status) status.textContent = error.message || 'Image cleanup failed.';
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Clear older saved images';
+    }
   }
 }
 

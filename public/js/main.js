@@ -30,7 +30,7 @@ import {
   togglePOVView, regeneratePOV, generatePOVImage, toggleStoryLogs, reRenderStory, retryTurn, restoreDiceState
 } from './modules/sessions.js';
 import {
-  loadSettings, saveSettings,
+  loadSettings, saveSettings, cleanupPOVImages,
   addApiConfig, testNewConfig, activateApiConfig, testApiConfig, deleteApiConfig, testConnection,
   loadGMSessionInfo, sendGMMessage,
   loadSessionSummary, saveSummary, forceCompact,
@@ -137,6 +137,7 @@ window.stopDJTrack = stopDJTrack;
 
 // Settings
 window.saveSettings = saveSettings;
+window.cleanupPOVImages = cleanupPOVImages;
 window.addApiConfig = addApiConfig;
 window.testNewConfig = testNewConfig;
 window.activateApiConfig = activateApiConfig;

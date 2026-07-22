@@ -6,6 +6,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { validate, validateBody, schemas } = require('../lib/validation');
+const { queuePOVImageCleanup } = require('../services/imageGenerationService');
 
 // Precomputed bcrypt hash of a random string. Used to keep login timing constant
 // when a supplied username does not exist (prevents user enumeration).
@@ -127,6 +128,7 @@ function createAuthRoutes(db, auth) {
       youtube_dj_enabled,
       youtube_api_key,
       pov_image_enabled,
+      pov_image_auto_enabled,
       pov_image_provider,
       pov_image_endpoint,
       pov_image_api_key,
@@ -146,6 +148,9 @@ function createAuthRoutes(db, auth) {
     if (pov_image_enabled !== undefined) {
       updateSetting.run(pov_image_enabled ? 'true' : 'false', 'pov_image_enabled');
     }
+    if (pov_image_auto_enabled !== undefined) {
+      updateSetting.run(pov_image_auto_enabled ? 'true' : 'false', 'pov_image_auto_enabled');
+    }
     if (['openai', 'nanogpt', 'chat_completions'].includes(pov_image_provider)) {
       updateSetting.run(pov_image_provider, 'pov_image_provider');
     }
@@ -162,6 +167,15 @@ function createAuthRoutes(db, auth) {
       updateSetting.run(pov_image_style_prompt.trim().slice(0, 1000), 'pov_image_style_prompt');
     }
     res.json({ success: true });
+  });
+
+  router.post('/settings/pov-images/cleanup', requireAdmin, async (req, res) => {
+    try {
+      const result = await queuePOVImageCleanup(db, 3);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to clean POV scene images: ' + error.message });
+    }
   });
 
   return router;

@@ -16,12 +16,12 @@ const {
 } = require('../services/tacticalCombatService');
 const { searchYoutubeMusic } = require('../services/youtubeService');
 const {
-  generatePOVSceneImage,
-  loadCharacterReference,
-  savePOVSceneImage,
   deletePOVSceneImage,
   deleteEntryPOVImages,
-  deleteSessionPOVScenes
+  deleteSessionPOVScenes,
+  loadPOVImageSettings,
+  queuePOVSceneGeneration,
+  queueAutoPOVScenes
 } = require('../services/imageGenerationService');
 
 /**
@@ -59,8 +59,6 @@ function createSessionRoutes(deps) {
   const router = express.Router();
   const { requireUser, requireAdmin } = auth;
   const { findCharacterByName } = tagParser;
-  const povImageJobs = new Set();
-
   const sendToSession = typeof emitToSession === 'function'
     ? emitToSession
     : (sessionId, event, payload) => io.emit(event, payload);
@@ -266,6 +264,15 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
               const history = [historyEntry];
               db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), id);
+              queueAutoPOVScenes({
+                db,
+                aiService,
+                sessionId: id,
+                index: 0,
+                characters,
+                aiConfig,
+                sendToSession
+              });
             }
           } catch (aiError) {
             console.error('Failed to generate opening scene:', aiError);
@@ -705,11 +712,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const povContent = entry.povs?.[character.character_name] || entry.content || '';
     if (!povContent.trim()) return res.status(400).json({ error: 'This POV has no narration to illustrate' });
 
-    const settingRows = db.prepare(`SELECT key, value FROM settings WHERE key IN (
-      'pov_image_enabled', 'pov_image_provider', 'pov_image_endpoint',
-      'pov_image_api_key', 'pov_image_model', 'pov_image_style_prompt'
-    )`).all();
-    const settings = Object.fromEntries(settingRows.map(row => [row.key, row.value]));
+    const settings = loadPOVImageSettings(db);
     if (settings.pov_image_enabled !== 'true') return res.status(400).json({ error: 'POV scene images are disabled in Admin Settings' });
     if (!settings.pov_image_endpoint || !settings.pov_image_api_key || !settings.pov_image_model) {
       return res.status(400).json({ error: 'POV image generation is not fully configured in Admin Settings' });
@@ -717,57 +720,24 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     const aiConfig = getActiveApiConfig();
     if (!aiConfig?.api_key) return res.status(400).json({ error: 'No active narration API configuration' });
-    const jobKey = `${sessionId}:${index}:${characterId}`;
-    if (povImageJobs.has(jobKey)) return res.status(409).json({ error: 'This POV image is already being generated' });
-    povImageJobs.add(jobKey);
-
-    let generatedUrl = null;
+    const job = queuePOVSceneGeneration({
+      db,
+      aiService,
+      sessionId,
+      index,
+      character,
+      aiConfig,
+      settings
+    });
+    if (!job.started) return res.status(409).json({ error: 'This POV image is already being generated' });
     try {
-      const prompt = await aiService.generatePOVImagePrompt(
-        { endpoint: aiConfig.endpoint, api_key: aiConfig.api_key, model: aiConfig.model },
-        character,
-        povContent,
-        settings.pov_image_style_prompt || ''
-      );
-      const reference = loadCharacterReference(character);
-      const image = await generatePOVSceneImage({
-        provider: settings.pov_image_provider,
-        endpoint: settings.pov_image_endpoint,
-        apiKey: settings.pov_image_api_key,
-        model: settings.pov_image_model
-      }, prompt, reference);
-      generatedUrl = savePOVSceneImage(image, sessionId);
-
-      const latestSession = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
-      const latestHistory = JSON.parse(latestSession?.full_history || '[]');
-      const latestEntry = latestHistory[index];
-      const latestPov = latestEntry?.povs?.[character.character_name] || latestEntry?.content || '';
-      if (!latestEntry || latestEntry.role !== 'assistant' || latestPov !== povContent) {
-        deletePOVSceneImage(generatedUrl);
-        return res.status(409).json({ error: 'The POV changed while its image was generating. Please try again.' });
-      }
-
-      const oldImageUrl = latestEntry.povImages?.[character.id]?.url;
-      latestEntry.povImages = latestEntry.povImages || {};
-      latestEntry.povImages[character.id] = {
-        url: generatedUrl,
-        prompt,
-        characterName: character.character_name,
-        createdAt: new Date().toISOString(),
-        usedAvatarReference: !!reference
-      };
-      latestHistory[index] = latestEntry;
-      db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(latestHistory), sessionId);
-      if (oldImageUrl && oldImageUrl !== generatedUrl) deletePOVSceneImage(oldImageUrl);
-
+      const image = await job.promise;
       sendToSession(sessionId, 'session_updated', { id: sessionId, reason: 'pov_image' });
-      res.json({ success: true, image: latestEntry.povImages[character.id] });
+      res.json({ success: true, image });
     } catch (error) {
-      if (generatedUrl) deletePOVSceneImage(generatedUrl);
       logger.error('POV scene image generation failed', { sessionId, characterId, error: error.message });
-      res.status(502).json({ error: 'POV scene image generation failed: ' + error.message });
-    } finally {
-      povImageJobs.delete(jobKey);
+      const status = error.message.startsWith('The POV changed') ? 409 : 502;
+      res.status(status).json({ error: 'POV scene image generation failed: ' + error.message });
     }
   });
 
