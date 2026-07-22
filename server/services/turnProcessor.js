@@ -429,15 +429,21 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
 
-  // Strip CHOICE tags from the narration stored in history
+  // Strip CHOICE tags from the narration stored in history. The narrator no longer emits
+  // tracking tags (the bookkeeper does), but defensively strip any stray ones too so a model
+  // slip never surfaces raw brackets to players or pollutes the stored/re-sent narration.
   const cleanedResponse = aiResponse
     .replace(/\[CHOICE:\s*[^\]]+\]/gi, '')
+    .replace(/\[(HP|XP|MONEY|GOLD|ITEM|SPELL|AC|REST):[^\]]*\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // === POV CONVERSION: Convert 3rd-person scene to per-character 2nd-person POVs ===
-  const { generateCharacterPOV } = require('./aiService');
+  // === BOOKKEEPER + POV: derive state-change tags and per-character POVs from the scene ===
+  // Both passes read the same finished scene, so run them together — the bookkeeper (a small,
+  // focused extraction call) adds no extra wall-clock latency beyond the POV fan-out.
+  const { generateCharacterPOV, generateStateTags } = require('./aiService');
   let parsedPOVs = {};
+  let stateTags = '';
   if (characters.length > 0) {
     if (stream) {
       console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
@@ -455,14 +461,31 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
 
     const storySummary = session.story_summary || '';
 
-    const povResults = await Promise.all(characters.map(async (c) => {
-      const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary);
-      return pov ? { name: c.character_name, pov } : null;
-    }));
+    // Compact party-state line the bookkeeper needs to reason about deltas (clean names + the
+    // current values it must respect: HP for damage bounds, gold for spend limits, inventory).
+    const bookkeeperState = characters.map(c => {
+      let inv = '';
+      try {
+        const arr = JSON.parse(c.inventory || '[]');
+        inv = arr.map(i => (i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name)).join(', ');
+      } catch (e) {}
+      return `- ${c.character_name}: HP ${c.hp}/${c.max_hp}, Gold ${c.gold || 0}${inv ? `, Inventory: ${inv}` : ''}`;
+    }).join('\n');
+
+    const [tagResult, povResults] = await Promise.all([
+      generateStateTags(apiConfig, cleanedResponse, bookkeeperState),
+      Promise.all(characters.map(async (c) => {
+        const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary);
+        return pov ? { name: c.character_name, pov } : null;
+      }))
+    ]);
+
+    stateTags = tagResult || '';
     for (const result of povResults) {
       if (result) parsedPOVs[result.name] = result.pov;
     }
     console.log(`POV conversion complete: ${Object.keys(parsedPOVs).length}/${characters.length} characters`);
+    console.log(`Bookkeeper tags: ${stateTags ? stateTags.replace(/\n/g, ' | ') : '(none)'}`);
   }
   const hasPOVs = Object.keys(parsedPOVs).length > 0;
 
@@ -491,14 +514,14 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     console.error('Failed to save game snapshot:', snapshotError.message);
   }
 
-  // Apply all tags from the AI response (from the original 3rd-person narration)
+  // Apply the bookkeeper's state-change tags (the narrator no longer emits them inline).
   console.log(stream ? '=== AI Stream Response complete ===' : '=== AI Response received ===');
-  console.log('Looking for tags in response...');
+  console.log('Applying bookkeeper state tags...');
 
   const tagApplicatorDeps = {
     db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC, emitCharacterUpdate
   };
-  applyAllTags(tagApplicatorDeps, aiResponse, characters, sessionId);
+  applyAllTags(tagApplicatorDeps, stateTags, characters, sessionId);
 
   // Update session — decide compaction from the ACTUAL outgoing prompt tokens (content only),
   // keeping a raw tail so the gap between summarizations does not vanish.

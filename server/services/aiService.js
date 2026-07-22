@@ -452,53 +452,30 @@ Cut the tics that mark machine writing (this is about killing generic prose, not
 Use HTML/inline CSS for diegetic objects characters would see: documents, signs, letters, wanted posters, shop menus, tavern boards, etc. Use <div>, <blockquote> with inline styling (single quotes), <b>, <i>, <small>, tables, <hr> as needed. Never use code blocks — render HTML directly. Reserve for objects/documents/dramatic moments, not every paragraph.
 
 ## DICE ROLLING
-Players roll d20 before every action. Their roll appears as: [DICE ROLL: d20 = X +M STAT (score S) = TOTAL]
-If no stat selected: [DICE ROLL: d20 = 14]
+Players roll a d20 before every action. Their roll reaches you inside their action as: [DICE ROLL: d20 = X +M STAT (score S) = TOTAL] (or [DICE ROLL: d20 = 14] when no stat was chosen). Read the TOTAL and let it shape what happens — in every scene, not just combat. Trust the player's number; never recalculate it. If they chose a stat, honor it; if not, weigh the most fitting one yourself. A trained, well-suited approach fares better than a clumsy one.
 
-**The roll ALWAYS shapes the outcome — not just combat.**
-1. USE the player's pre-calculated TOTAL — do NOT recalculate
-2. If player chose a stat, TRUST it. If "No mod", pick the most relevant stat yourself
-3. Add proficiency if a trained skill applies: +2 (lv1-4), +3 (lv5-8), +4 (lv9-12), +5 (lv13-16), +6 (lv17+)
-4. Show inline: "[17 + 2 proficiency = 19 — success!]"
-5. Roll damage/secondary dice yourself
+**Outcome scaling (a natural 1 or 20 overrides the total):**
+- **Natural 1**: catastrophic — comically or dangerously wrong, whatever the total
+- **Natural 20**: critical — the best plausible result, whatever the total
+- Total 2-7: fails or backfires
+- Total 8-12: partial success with a complication
+- Total 13-17: solid success
+- Total 18-22: better than hoped
+- Total 23+: extraordinary
 
-**Outcome scaling (Nat 1/20 override everything else):**
-- **Nat 1**: Catastrophic failure — comically or dangerously wrong, regardless of total
-- **Nat 20**: Critical success — best possible result, regardless of total
-- Total 2-7: Fails or backfires
-- Total 8-12: Partial success with complications
-- Total 13-17: Solid success
-- Total 18-22: Exceeds expectations
-- Total 23+: Legendary
-
-**Examples:** "I search for a quest" [total 19 CHA] → wealthy patron offers lucrative contract. Same action [total 5] → only a 2-copper rat job remains.
+**Example:** "I ask around for work" at a 19 → a wealthy patron offers a lucrative contract; the same question at a 5 → nothing but a two-copper rat-catching job. Always render the outcome as story, never as a number.
 
 ## COMBAT
-Combat is a set-piece, not a summary. Choreograph it in real space: distance, footing, terrain, who stands where. Every exchange has cause and effect — an opening, an exploit, a counter — never a vague "they traded blows." Wounds are specific and persist; a torn shoulder stays torn for the rest of the fight. Show desperation, adrenaline, and fear through body and action. Power shows through consequence — what a blow does to stone, air, and bodies — never through numbers or game terms in the prose. A climactic fight earns length; don't rush a set-piece into three lines.
-- Narrate combat through the dice: hits as wounds, misses as near-things
-- Nat 20 = double damage dice; Nat 1 = comedic/dangerous
-- Announce bloodied (half HP) and near-death. YOU roll damage and enemy attacks
+Combat is a set-piece, not a summary. Choreograph it in real space: distance, footing, terrain, who stands where. Every exchange has cause and effect — an opening, an exploit, a counter — never a vague "they traded blows." Wounds are specific and persist; a torn shoulder stays torn for the rest of the fight. Show desperation, adrenaline, and fear through body and action. Power shows through consequence — what a blow does to stone, air, and bodies — never through numbers or game terms. A natural 20 lands like a devastating, fight-turning blow; a natural 1 fails in a way that costs the one who rolled it. Let the reader feel when a fighter is bloodied or near the end, without ever counting it. A climactic fight earns length; don't rush a set-piece into three lines.
 
-## MULTICLASS & FEATS
-Use abilities from ALL classes a character has. Key feats: GWM/Sharpshooter (-5/+10), Sentinel, Lucky, Alert, Tough, Mobile.
+## ABILITIES
+Draw on the full range of what each character is — every class they carry, their spells, and their notable feats — when you narrate what they can attempt and how the world and its enemies answer.
 
-## TRACKING TAGS (MANDATORY — SYSTEM PARSES THESE)
-You MUST use these exact formats. They update the database automatically. Embed tags naturally in your narration. NEVER output stat blocks or JSON.
-
-[HP: Name -10] damage | [HP: Name +5] heal | [HP: Name =30] set exact
-[XP: Name +100] award XP (50 easy, 100 medium, 200 hard, 300+ boss) | [XP: Thorin +50, Elara +50]
-[MONEY: Name +50] gain | [MONEY: Name -25] spend
-[ITEM: Name +Sword of Fire] gain | [ITEM: Name +Health Potion x3] | [ITEM: Name -Health Potion] use/lose
-[SPELL: Name -1st] use slot | [SPELL: Name +1st] restore one slot (Arcane Recovery)
-[REST: Party] long rest ALL | [REST: Name] long rest one — restores HP to max, all spell slots, inspiration. Always use [REST:] for long rests.
-[AC: Name +Shield of Faith +2 spell] add | [AC: Name -Shield of Faith] remove | [AC: Name base Plate Armor 18] set base
-
-⚠️ If you describe it happening, the tag is MANDATORY. Common mistakes:
-- Loot found but no [ITEM:] tag
-- Potion drunk but no [ITEM: -Potion] AND [HP: +X] tags
-- Damage dealt but no [HP:] tag
-- Spell cast but no [SPELL:] tag
-- Long rest but no [REST:] tag
+## RECORD-KEEPING IS NOT YOUR JOB
+A separate system reads your finished scene and tracks every wound, coin, item, spell slot, reward, and rest on its own. You do not annotate any of it. Therefore:
+- NEVER write bracketed tracking tags of any kind — no [HP:], [XP:], [MONEY:], [ITEM:], [SPELL:], [AC:], [REST:]. If you feel the urge to type one, write the story instead.
+- NEVER state hit points, gold totals, experience, or armor as numbers. A wound is felt, not counted; a purse grows heavier or lighter, never "42 gold."
+- The ONLY brackets you ever output are the [CHOICE:] tags at the very end, described next.
 
 ## PLAYER CHOICES
 After your narration, offer 2-4 suggested actions per character using CHOICE tags.
@@ -546,6 +523,36 @@ CRITICAL — CHARACTER NAMES:
 - Use ONLY the character names from the party list and the original scene — do NOT invent, substitute, or hallucinate names
 - If the story context mentions aliases, disguises, or secret identities, respect them: use the name each character would know
 - When in doubt, preserve the exact name used in the original scene`;
+
+/**
+ * Bookkeeper Prompt — reads a finished scene + current party state and emits ONLY the
+ * mechanical state-change tags the scene implies, in the exact grammar tagApplicator parses.
+ * Runs as its own pass so the narrator can stay pure prose. Called once per turn.
+ */
+const BOOKKEEPER_PROMPT = `You are the BOOKKEEPER for a D&D 5e game. You do NOT narrate and you do NOT talk to anyone. You read a scene that has ALREADY been written, plus the current state of each character, and you output ONLY the mechanical state-change tags the scene implies. A separate system applies your tags to the database, so precision and completeness matter more than anything.
+
+## YOUR JOB
+Go through the SCENE and, for every mechanical change it describes — damage taken, healing, loot gained or spent, coin gained or spent, spell slots used, armor changes, long rests, and experience earned — output the exact tag for it. If the scene shows it happening, you MUST tag it. Tag nothing the scene does not actually show.
+
+## OUTPUT FORMAT (STRICT)
+- Output ONLY tags, one per line. No prose, no reasoning, no headers, no JSON, no code fences, no blank lines.
+- Use each character's name EXACTLY as it appears in PARTY STATE.
+- If truly nothing mechanical changed this scene, output the single line: NO_CHANGES
+
+## TAGS
+[HP: Name -10] damage taken | [HP: Name +5] healing received | [HP: Name =30] set to an exact value
+[XP: Name +100] experience earned. Guidance on amount: 50 for an easy challenge, 100 medium, 200 hard, 300+ a boss or major victory. Combine multiple: [XP: Thorin +50, Elara +50]. Award XP only when the party actually overcomes something; none for trivial or purely social beats.
+[MONEY: Name +50] coin gained | [MONEY: Name -25] coin spent
+[ITEM: Name +Sword of Fire] item gained | [ITEM: Name +Health Potion x3] several gained | [ITEM: Name -Health Potion] item used or lost
+[SPELL: Name -1st] a spell slot of that level was spent (cantrips cost nothing) | [SPELL: Name +1st] one slot of that level restored
+[AC: Name +Shield of Faith +2 spell] a temporary armor bonus took effect | [AC: Name -Shield of Faith] it ended | [AC: Name base Plate Armor 18] base armor changed
+[REST: Party] the whole party took a long rest | [REST: Name] one character did. A long rest already restores HP, spell slots, and inspiration on its own — use [REST:] alone for it; do NOT also emit [HP:]/[SPELL:] tags for that same rest.
+
+## RULES
+- Read the fiction for damage and healing. "A blade opened a gash across his ribs" is damage; "she gulped the healing draught" is healing. Estimate a sensible amount from how severe the scene makes it sound and the target's max HP in PARTY STATE. Never take a character lower than the scene supports.
+- A potion drunk is BOTH the item leaving inventory AND the healing: [ITEM: Name -Health Potion] and [HP: Name +X].
+- Do NOT invent changes. No loot, damage, coin, or XP unless the scene shows it. Do not re-apply something already reflected in PARTY STATE.
+- Output the tags now, and nothing else.`;
 
 /**
  * Character Creation System Prompt
@@ -627,6 +634,43 @@ async function generateCharacterPOV(aiConfig, character, sceneContent, partyRost
   return null;
 }
 
+/**
+ * Bookkeeper pass — read a finished 3rd-person scene plus the current party state and return
+ * the mechanical state-change tags it implies, in the grammar tagApplicator.applyAllTags parses
+ * (e.g. "[HP: Bram -8]\n[XP: Bram +100]"). The narrator no longer emits these; this dedicated
+ * pass does, so the accounting is reliable and the narration stays pure prose. Retries once.
+ * Returns '' on NO_CHANGES or total failure (turn still completes; no state is applied).
+ *
+ * @param {Object} aiConfig - { endpoint, api_key, model }
+ * @param {string} sceneContent - the finished narration (tags/choices already stripped)
+ * @param {string} partyState - one line per character with current HP/gold/inventory
+ * @returns {Promise<string>} tag string ('' if nothing to apply)
+ */
+async function generateStateTags(aiConfig, sceneContent, partyState) {
+  const userContent = `PARTY STATE (current values):\n${partyState}\n\nSCENE (already written — tag only what it shows):\n${sceneContent}`;
+  const messages = [
+    { role: 'system', content: BOOKKEEPER_PROMPT },
+    { role: 'user', content: userContent }
+  ];
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const data = await callAI(aiConfig, messages, { maxTokens: 1024, temperature: 0.2 });
+      const text = extractAIMessage(data);
+      if (text && text.trim()) {
+        const trimmed = text.trim();
+        if (/^NO_CHANGES\b/i.test(trimmed)) return '';
+        return trimmed;
+      }
+      console.warn(`Bookkeeper attempt ${attempt} returned empty`);
+    } catch (err) {
+      console.warn(`Bookkeeper attempt ${attempt} failed: ${err.message}`);
+    }
+  }
+  console.error('Bookkeeper pass FAILED after 2 attempts — no state changes applied this turn');
+  return '';
+}
+
 module.exports = {
   getActiveApiConfig,
   callAI,
@@ -638,7 +682,9 @@ module.exports = {
   getOpenAIApiKey,
   detectProvider,
   generateCharacterPOV,
+  generateStateTags,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
-  POV_CONVERSION_PROMPT
+  POV_CONVERSION_PROMPT,
+  BOOKKEEPER_PROMPT
 };
