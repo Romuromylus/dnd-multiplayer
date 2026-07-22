@@ -260,7 +260,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     emitCharacterUpdate,
     applyAllTags
   } = deps;
-  const { extractAIMessage, callAIStream, detectProvider } = aiService;
+  const { extractAIMessage, callAIStream, detectProvider, extractFinishReason, isLengthFinish, buildContinuationMessages } = aiService;
   const { findCharacterByName } = tagParser;
   const sendToSession = typeof emitToSession === 'function'
     ? emitToSession
@@ -399,10 +399,24 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     // Stream the AI response
     aiResponse = '';
     try {
-      for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: 64000 })) {
+      const meta = {};
+      for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: 64000, meta })) {
         aiResponse += chunk;
         // Emit each chunk to clients for real-time display
         sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
+      }
+
+      let guard = 0;
+      const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
+      while (isLengthFinish(meta.finishReason) && aiResponse && guard < 2) {
+        guard++;
+        console.warn(`Narration hit token cap (finish_reason=${meta.finishReason}); continuing (${guard}/2)...`);
+        const contMeta = {};
+        for await (const chunk of callAIStream(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: 64000, meta: contMeta })) {
+          aiResponse += chunk;
+          sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
+        }
+        meta.finishReason = contMeta.finishReason;
       }
     } catch (streamError) {
       console.error('Stream error:', streamError);
@@ -417,12 +431,25 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   } else {
     // Call AI API (supports both OpenAI and Anthropic via aiService)
     const { callAI } = require('./aiService');
-    const data = await callAI(apiConfig, messages, { maxTokens: 64000 });
+    const data = await callAI(apiConfig, messages, { maxTokens: 64000, timeoutMs: 300000 });
     aiResponse = extractAIMessage(data);
 
     if (!aiResponse) {
       console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
       throw new Error('Could not parse AI response. Check server logs.');
+    }
+
+    let finish = extractFinishReason(data);
+    let guard = 0;
+    const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
+    while (isLengthFinish(finish) && aiResponse && guard < 2) {
+      guard++;
+      console.warn(`Narration hit token cap (finish_reason=${finish}); continuing (${guard}/2)...`);
+      const contData = await callAI(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: 64000, timeoutMs: 300000 });
+      const contText = extractAIMessage(contData);
+      if (!contText || !contText.trim()) break;
+      aiResponse += contText;
+      finish = extractFinishReason(contData);
     }
   }
 

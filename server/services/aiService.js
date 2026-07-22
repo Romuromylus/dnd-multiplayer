@@ -142,6 +142,7 @@ async function callAI(config, messages, options = {}) {
  */
 async function* callAIStream(config, messages, options = {}) {
   const { maxTokens = 4096, temperature = 0.8, timeoutMs = 300000 } = options;
+  const meta = options.meta;
 
   if (!config || !config.endpoint || !config.api_key || !config.model) {
     throw new Error('Invalid API configuration');
@@ -200,6 +201,9 @@ async function* callAIStream(config, messages, options = {}) {
               if (parsed.type === 'content_block_delta' && parsed.delta && parsed.delta.type === 'text_delta') {
                 yield parsed.delta.text;
               }
+              if (meta && parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
+                meta.finishReason = parsed.delta.stop_reason;
+              }
             } catch (e) {
               // Skip unparseable lines
             }
@@ -216,6 +220,9 @@ async function* callAIStream(config, messages, options = {}) {
               const content = parsed.choices?.[0]?.delta?.content;
               if (content) {
                 yield content;
+              }
+              if (meta && parsed.choices?.[0]?.finish_reason) {
+                meta.finishReason = parsed.choices[0].finish_reason;
               }
             } catch (e) {
               // Skip unparseable lines
@@ -235,9 +242,15 @@ async function* callAIStream(config, messages, options = {}) {
             if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
               yield parsed.delta.text;
             }
+            if (meta && parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
+              meta.finishReason = parsed.delta.stop_reason;
+            }
           } else {
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) yield content;
+            if (meta && parsed.choices?.[0]?.finish_reason) {
+              meta.finishReason = parsed.choices[0].finish_reason;
+            }
           }
         } catch (e) {
           // Skip
@@ -271,6 +284,42 @@ function extractAIMessage(data) {
     return data.content;
   }
   return '';
+}
+
+/**
+ * Read the finish/stop reason from a non-streaming AI response.
+ * OpenAI: choices[0].finish_reason; Anthropic: stop_reason. null when omitted.
+ */
+function extractFinishReason(data) {
+  if (!data) return null;
+  if (data.choices && data.choices[0] && data.choices[0].finish_reason != null) {
+    return data.choices[0].finish_reason;
+  }
+  if (data.stop_reason != null) return data.stop_reason;
+  return null;
+}
+
+/**
+ * True when the model was cut off at the token cap.
+ */
+function isLengthFinish(reason) {
+  if (!reason) return false;
+  const r = String(reason).toLowerCase();
+  return r === 'length' || r === 'max_tokens';
+}
+
+/**
+ * Build messages to continue a truncated generation with no repetition.
+ */
+function buildContinuationMessages(baseMessages, partial, provider) {
+  const cont = [...baseMessages, { role: 'assistant', content: partial }];
+  if (provider !== 'anthropic') {
+    cont.push({
+      role: 'user',
+      content: 'Continue seamlessly from exactly where you stopped. Do NOT repeat, re-summarize, or restart anything you already wrote - if you were mid-sentence, finish that sentence and carry on to the end.'
+    });
+  }
+  return cont;
 }
 
 function isPrivateOrLocalIp(ip) {
@@ -621,11 +670,25 @@ async function generateCharacterPOV(aiConfig, character, sceneContent, partyRost
     { role: 'user', content: userContent }
   ];
 
+  const provider = detectProvider(aiConfig.endpoint);
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const data = await callAI(aiConfig, messages, { maxTokens: 8192, temperature: 0.7 });
-      const text = extractAIMessage(data);
-      if (text && text.trim()) return text.trim();
+      const data = await callAI(aiConfig, messages, { maxTokens: 16000, temperature: 0.7, timeoutMs: 300000 });
+      let text = extractAIMessage(data);
+      if (text && text.trim()) {
+        let finish = extractFinishReason(data);
+        let guard = 0;
+        while (isLengthFinish(finish) && guard < 3) {
+          guard++;
+          console.warn(`POV for ${character.character_name} hit token cap (finish_reason=${finish}); continuing (${guard}/3)...`);
+          const contData = await callAI(aiConfig, buildContinuationMessages(messages, text, provider), { maxTokens: 16000, temperature: 0.7, timeoutMs: 300000 });
+          const contText = extractAIMessage(contData);
+          if (!contText || !contText.trim()) break;
+          text += contText;
+          finish = extractFinishReason(contData);
+        }
+        return text.trim();
+      }
       console.warn(`POV attempt ${attempt} for ${character.character_name} returned empty`);
     } catch (err) {
       console.warn(`POV attempt ${attempt} for ${character.character_name} failed: ${err.message}`);
@@ -656,8 +719,11 @@ async function generateStateTags(aiConfig, sceneContent, partyState) {
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const data = await callAI(aiConfig, messages, { maxTokens: 1024, temperature: 0.2 });
+      const data = await callAI(aiConfig, messages, { maxTokens: 2048, temperature: 0.2 });
       const text = extractAIMessage(data);
+      if (isLengthFinish(extractFinishReason(data))) {
+        console.warn('Bookkeeper output hit token cap (2048) - some state tags may be missing this turn');
+      }
       if (text && text.trim()) {
         const trimmed = text.trim();
         if (/^NO_CHANGES\b/i.test(trimmed)) return '';
@@ -677,6 +743,9 @@ module.exports = {
   callAI,
   callAIStream,
   extractAIMessage,
+  extractFinishReason,
+  isLengthFinish,
+  buildContinuationMessages,
   estimateTokens,
   validateEndpointSafety,
   testConnection,
