@@ -8,6 +8,54 @@ export function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Inline elements whose author-chosen text color we normalize for theme readability. The AI
+// colors major-NPC dialogue with <font color> (see the DM prompt); a fixed hex can't read well
+// on both the dark and the light parchment background, so we keep the hue/saturation and let
+// theme-scoped CSS drive the lightness. Block/container elements are left alone — a styled
+// diegetic document (letter, sign) sets its own foreground+background together.
+const INLINE_COLOR_TAGS = new Set(['FONT', 'SPAN', 'B', 'I', 'EM', 'STRONG', 'U', 'SMALL']);
+
+/**
+ * Parse a CSS color (#rgb, #rrggbb, or rgb()/rgba()) into HSL hue + saturation.
+ * Returns null for anything unparseable (named colors, gradients) so it's left untouched.
+ */
+function colorToHueSat(input) {
+  if (!input) return null;
+  const s = input.trim().toLowerCase();
+  let r, g, b, m;
+  if ((m = s.match(/^#([0-9a-f]{3})$/))) {
+    r = parseInt(m[1][0] + m[1][0], 16);
+    g = parseInt(m[1][1] + m[1][1], 16);
+    b = parseInt(m[1][2] + m[1][2], 16);
+  } else if ((m = s.match(/^#([0-9a-f]{6})$/))) {
+    r = parseInt(m[1].slice(0, 2), 16);
+    g = parseInt(m[1].slice(2, 4), 16);
+    b = parseInt(m[1].slice(4, 6), 16);
+  } else if ((m = s.match(/^rgba?\(([^)]+)\)/))) {
+    const parts = m[1].split(',').map(p => parseFloat(p));
+    [r, g, b] = parts;
+    if ([r, g, b].some(v => Number.isNaN(v))) return null;
+  } else {
+    return null;
+  }
+
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0, sat = 0;
+  if (max !== min) {
+    const d = max - min;
+    sat = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      default: h = (r - g) / d + 4;
+    }
+    h /= 6;
+  }
+  return { h: Math.round(h * 360), s: Math.round(sat * 100) };
+}
+
 /**
  * Sanitize HTML: allow safe tags, strip scripts and dangerous attributes.
  */
@@ -39,6 +87,26 @@ function sanitizeHtml(html) {
         }
       }
     });
+
+    // Theme-normalize inline text color (NPC dialogue) so it stays readable in both themes.
+    if (INLINE_COLOR_TAGS.has(el.tagName)) {
+      const styleAttr = el.getAttribute('style') || '';
+      // Leave self-contained styled snippets (they set their own background) untouched.
+      if (!/background/i.test(styleAttr)) {
+        const attrColor = el.getAttribute('color');
+        const styleColorMatch = styleAttr.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+        const styleColor = styleColorMatch ? styleColorMatch[1].trim() : null;
+        const hsl = colorToHueSat(styleColor || attrColor);
+        if (hsl) {
+          if (attrColor) el.removeAttribute('color');
+          let rest = styleAttr.replace(/(?:^|;)\s*color\s*:\s*[^;]+;?/i, '').replace(/;;+/g, ';').replace(/^;|;$/g, '').trim();
+          const sat = Math.min(80, Math.max(45, hsl.s));
+          const vars = `--npc-h:${hsl.h};--npc-s:${sat}%`;
+          el.setAttribute('style', rest ? `${rest};${vars}` : vars);
+          el.classList.add('npc-line');
+        }
+      }
+    }
   });
 
   return doc.body.innerHTML;

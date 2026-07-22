@@ -4120,3 +4120,22 @@ button { cursor: pointer; }
   .top-bar, .bottom-nav, .action-bar, .drawer-toggle { display: none; }
   .story-entry { break-inside: avoid; }
 }
+
+/* ---------------------------------------------------------------
+   41. NPC DIALOGUE COLOR (theme-normalized)
+   The AI colors major-NPC dialogue with <font color>; formatters.js keeps the
+   hue/saturation as --npc-h/--npc-s and drops the author's lightness, so the
+   readable lightness comes from the theme below (bright on dark, deep on light).
+   --------------------------------------------------------------- */
+
+.npc-line {
+  color: hsl(var(--npc-h, 40) var(--npc-s, 60%) 70%);
+}
+
+[data-theme="dark"] .npc-line {
+  color: hsl(var(--npc-h, 40) var(--npc-s, 60%) 70%);
+}
+
+[data-theme="light"] .npc-line {
+  color: hsl(var(--npc-h, 40) var(--npc-s, 60%) 34%);
+}
