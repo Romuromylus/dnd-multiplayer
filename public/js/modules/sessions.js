@@ -73,7 +73,13 @@ export async function deleteSession(id, name) {
     const currentSession = getState('currentSession');
     if (currentSession && currentSession.id === id) {
       setState({ currentSession: null });
-      document.getElementById('story-container').innerHTML = '<p class="no-session">Select or create a session to begin your adventure!</p>';
+      const storyContainer = document.getElementById('story-container');
+      const storyMain = storyContainer?.closest('.story-main');
+      storyContainer?.classList.remove('has-scene-image');
+      storyContainer?.style.removeProperty('--story-scene-image');
+      storyMain?.classList.remove('has-scene-image');
+      storyMain?.style.removeProperty('--story-scene-image');
+      storyContainer.innerHTML = '<p class="no-session">Select or create a session to begin your adventure!</p>';
     }
     loadSessions();
   } catch (error) {
@@ -465,6 +471,7 @@ function renderHistoricalScene(entry, selectedChar, isActiveScene) {
 function syncStoryStage() {
   const container = document.getElementById('story-container');
   if (!container) return;
+  const storyMain = container.closest('.story-main');
   const selectedChar = getSelectedCharacter();
   const activeIndex = latestNarrationIndex();
   const activeEntry = activeIndex >= 0 ? _fullRenderedHistory[activeIndex] : null;
@@ -472,9 +479,13 @@ function syncStoryStage() {
   if (sceneUrl) {
     container.style.setProperty('--story-scene-image', `url("${sceneUrl}")`);
     container.classList.add('has-scene-image');
+    storyMain?.style.setProperty('--story-scene-image', `url("${sceneUrl}")`);
+    storyMain?.classList.add('has-scene-image');
   } else {
     container.style.removeProperty('--story-scene-image');
     container.classList.remove('has-scene-image');
+    storyMain?.style.removeProperty('--story-scene-image');
+    storyMain?.classList.remove('has-scene-image');
   }
 }
 
