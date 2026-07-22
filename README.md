@@ -11,6 +11,7 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 - **Automatic Dice Rolling** - AI rolls dice and calculates results using character stats
 - **Tactical Combat** - Server-authoritative grid encounters with initiative, movement, attacks, defense, and real-time enemy turns
 - **YouTube DJ** - Optional shared, scene-matched music that changes with every narrated turn
+- **Illustrated POV Stage** - Players can generate avatar-referenced scene art for their own POV, shared live across devices
 - **XP Tracking** - Automatic XP parsing from AI responses with D&D 5e leveling
 - **Gold & Inventory System** - Track gold and items automatically from gameplay
 - **AI-Assisted Level Up** - Guided stat increases, new abilities, and spell selection
@@ -76,6 +77,7 @@ docker run -p 3000:3000 -v ./data:/app/data -e GAME_PASSWORD=secret -e ADMIN_PAS
 3. Configure your AI API endpoint, key, and model
 4. Test the connection
 5. Optional: add a YouTube Data API v3 key in Settings and enable YouTube DJ
+6. Optional: configure an OpenAI Images, NanoGPT, or compatible chat image API and enable POV Scene Images
 
 Note: if EasyPanel/Traefik basic auth is enabled, users will authenticate twice (proxy layer + in-app game password).
 

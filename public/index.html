@@ -496,6 +496,37 @@
         </div>
         <p id="youtube-dj-status" class="settings-note"></p>
 
+        <h2>POV Scene Images</h2>
+        <p class="settings-note">Players can illustrate their current POV on demand. The active character avatar is sent as the likeness reference, and the finished scene becomes the shared story-stage background for that POV.</p>
+        <div class="form-group checkbox-group">
+          <label><input type="checkbox" id="pov-image-enabled"> Enable POV scene images</label>
+        </div>
+        <div class="form-group">
+          <label for="pov-image-provider">Image API Type</label>
+          <select id="pov-image-provider">
+            <option value="openai">OpenAI Images API</option>
+            <option value="nanogpt">NanoGPT Images API</option>
+            <option value="chat_completions">Chat Completions Image API (LinkAPI / compatible)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="pov-image-endpoint">Image API Base URL</label>
+          <input type="url" id="pov-image-endpoint" placeholder="https://api.openai.com/v1">
+        </div>
+        <div class="form-group">
+          <label for="pov-image-model">Image Model</label>
+          <input type="text" id="pov-image-model" placeholder="gpt-image-1">
+        </div>
+        <div class="form-group">
+          <label for="pov-image-api-key">Image API Key</label>
+          <input type="password" id="pov-image-api-key" placeholder="Paste a key only to add or replace it">
+        </div>
+        <div class="form-group">
+          <label for="pov-image-style-prompt">Campaign Art Direction</label>
+          <textarea id="pov-image-style-prompt" rows="3" maxlength="1000" placeholder="Cinematic fantasy illustration, grounded detail, dramatic natural lighting..."></textarea>
+        </div>
+        <p id="pov-image-status" class="settings-note"></p>
+
         <h2>Text-to-Speech (TTS)</h2>
         <p class="settings-note">AI-powered narration for DM messages. Click the speaker icon on any DM message to hear it read aloud.</p>
         <div class="form-group">

@@ -57,6 +57,7 @@ function renderInitiative(state) {
 export function renderTacticalCombat(combat) {
   const panel = document.getElementById('tactical-combat-panel');
   if (!panel) return;
+  document.querySelector('.story-main')?.classList.toggle('combat-mode-active', !!combat?.state);
   setState({ activeCombat: combat || null });
   if (!combat?.state) {
     panel.hidden = true;

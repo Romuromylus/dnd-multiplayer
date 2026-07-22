@@ -229,10 +229,14 @@ export async function loadSession(id) {
     }
 
     const data = await api(`/api/sessions/${id}`);
+    if (!previousSession || previousSession.id !== id) {
+      document.getElementById('story-container')?.classList.remove('logs-open');
+    }
     setState({
       currentSession: data.session,
       sessionCharacters: data.sessionCharacters || [],
-      activeCombat: data.combat || null
+      activeCombat: data.combat || null,
+      povImageEnabled: !!data.features?.povImageEnabled
     });
 
     updateCharacterSelect();
@@ -259,6 +263,7 @@ export async function loadSession(id) {
       _renderedCount = history.length - startIndex;
       const visibleHistory = history.slice(startIndex);
       historyContainer.innerHTML = renderStoryHistory(visibleHistory, startIndex);
+      syncStoryStage();
 
       // Set up IntersectionObserver for lazy loading older messages
       setupScrollObserver(historyContainer);
@@ -299,6 +304,7 @@ export function reRenderStory() {
   const startIndex = Math.max(0, _fullRenderedHistory.length - _renderedCount);
   const visibleHistory = _fullRenderedHistory.slice(startIndex);
   historyContainer.innerHTML = renderStoryHistory(visibleHistory, startIndex);
+  syncStoryStage();
 
   if (scrollWasAtBottom) scrollStoryToBottom();
 }
@@ -418,10 +424,64 @@ export async function refreshSessionCharacters() {
 // Story rendering
 // ============================================
 
+function safeSceneUrl(entry, characterId) {
+  const url = entry?.povImages?.[characterId]?.url;
+  return /^\/uploads\/pov-scenes\/[A-Za-z0-9-]+\/[A-Za-z0-9.-]+$/.test(url || '') ? url : '';
+}
+
+function latestNarrationIndex() {
+  for (let index = _fullRenderedHistory.length - 1; index >= 0; index--) {
+    const entry = _fullRenderedHistory[index];
+    if (entry && !entry.hidden && (entry.role === 'assistant' || entry.type === 'narration')) return index;
+  }
+  return -1;
+}
+
+function renderSceneControls(entry, globalIndex, selectedChar, canIllustrate, isActiveScene) {
+  const sceneUrl = selectedChar ? safeSceneUrl(entry, selectedChar.id) : '';
+  const controls = [];
+  if (isActiveScene) {
+    const logsOpen = document.getElementById('story-container')?.classList.contains('logs-open');
+    controls.push(`<button class="story-logs-btn" onclick="toggleStoryLogs(this)" title="Show or hide story logs">${logsOpen ? 'Close Logs' : 'Logs'}</button>`);
+  }
+  if (selectedChar && canIllustrate) {
+    const label = sceneUrl ? 'Reroll Image' : 'Illustrate';
+    controls.push(`<button class="pov-image-btn" onclick="generatePOVImage(${globalIndex}, '${escapeHtml(selectedChar.id)}', this)" title="${label} this POV using ${escapeHtml(selectedChar.character_name)}'s avatar">${label}</button>`);
+  }
+  if (sceneUrl) {
+    controls.push(`<a class="story-scene-view" href="${escapeHtml(sceneUrl)}" target="_blank" rel="noopener" title="Open the full scene image">View Scene</a>`);
+  }
+  return controls.join('');
+}
+
+function renderHistoricalScene(entry, selectedChar, isActiveScene) {
+  if (!selectedChar || isActiveScene) return '';
+  const sceneUrl = safeSceneUrl(entry, selectedChar.id);
+  if (!sceneUrl) return '';
+  return `<figure class="story-scene-thumbnail"><img src="${escapeHtml(sceneUrl)}" alt="Illustrated scene from ${escapeHtml(selectedChar.character_name)}'s POV" loading="lazy"></figure>`;
+}
+
+function syncStoryStage() {
+  const container = document.getElementById('story-container');
+  if (!container) return;
+  const selectedChar = getSelectedCharacter();
+  const activeIndex = latestNarrationIndex();
+  const activeEntry = activeIndex >= 0 ? _fullRenderedHistory[activeIndex] : null;
+  const sceneUrl = selectedChar ? safeSceneUrl(activeEntry, selectedChar.id) : '';
+  if (sceneUrl) {
+    container.style.setProperty('--story-scene-image', `url("${sceneUrl}")`);
+    container.classList.add('has-scene-image');
+  } else {
+    container.style.removeProperty('--story-scene-image');
+    container.classList.remove('has-scene-image');
+  }
+}
+
 export function renderStoryHistory(history, indexOffset = 0) {
   let html = '';
   let turnActions = [];
   let turnActionIndices = [];
+  const activeNarrationIndex = latestNarrationIndex();
 
   for (let i = 0; i < history.length; i++) {
     const entry = history[i];
@@ -453,6 +513,10 @@ export function renderStoryHistory(history, indexOffset = 0) {
         isAdmin || (selectedChar && (selectedChar.user_id === currentUser.id || !selectedChar.user_id))
       ));
       const povMissing = hasPOVs && selectedCharName && !entry.povs[selectedCharName];
+      const isActiveScene = globalIndex === activeNarrationIndex;
+      const activeSceneClass = isActiveScene ? ' active-scene-entry' : '';
+      const sceneControls = renderSceneControls(entry, globalIndex, selectedChar, canRerollSelectedPOV && getState('povImageEnabled'), isActiveScene);
+      const historicalScene = renderHistoricalScene(entry, selectedChar, isActiveScene);
 
       if (hasPOVs && selectedCharName && entry.povs[selectedCharName]) {
         // Render only the selected character's POV
@@ -460,16 +524,18 @@ export function renderStoryHistory(history, indexOffset = 0) {
         const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
         const ttsContent = btoa(encodeURIComponent(povContent));
         html += `
-          <div class="story-entry assistant narration pov-narration" data-index="${globalIndex}">
+          <div class="story-entry assistant narration pov-narration${activeSceneClass}" data-index="${globalIndex}">
             <div class="narration-header">
               <div class="role">Your Story <span class="pov-badge">${escapeHtml(selectedCharName)}'s POV</span></div>
               <div class="narration-controls">
+                ${sceneControls}
                 ${canRerollSelectedPOV ? `<button class="pov-regen-btn" onclick="regeneratePOV(${globalIndex}, '${escapeHtml(selectedCharId)}', this)" title="Reroll only ${escapeHtml(selectedCharName)}'s POV for this turn">↻ POV</button>` : ''}
                 <button class="pov-toggle-btn" onclick="togglePOVView(${globalIndex})" title="Switch POV view">\uD83D\uDC41\uFE0F</button>
                 <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
                 <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
               </div>
             </div>
+            ${historicalScene}
             <div class="content pov-content" data-pov-for="${escapeHtml(selectedCharName)}">${formatContent(povContent)}</div>
             <div class="pov-all-container" style="display:none" data-index="${globalIndex}">
               ${Object.entries(entry.povs).map(([name, content]) => `
@@ -487,10 +553,11 @@ export function renderStoryHistory(history, indexOffset = 0) {
         const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
         const ttsContent = btoa(encodeURIComponent(allPovText));
         html += `
-          <div class="story-entry assistant narration pov-narration" data-index="${globalIndex}">
+          <div class="story-entry assistant narration pov-narration${activeSceneClass}" data-index="${globalIndex}">
             <div class="narration-header">
               <div class="role">Dungeon Master <span class="pov-badge">All POVs</span></div>
               <div class="narration-controls">
+                ${sceneControls}
                 <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
                 <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
               </div>
@@ -515,15 +582,17 @@ export function renderStoryHistory(history, indexOffset = 0) {
           ? `<button class="pov-regen-btn" onclick="regeneratePOV(${globalIndex}, '${escapeHtml(selectedCharId)}', this)" title="Generate ${escapeHtml(selectedCharName)}\u2019s POV for this turn">↻ POV</button>`
           : '';
         html += `
-          <div class="story-entry assistant narration pov-narration pov-fallback" data-index="${globalIndex}">
+          <div class="story-entry assistant narration pov-narration pov-fallback${activeSceneClass}" data-index="${globalIndex}">
             <div class="narration-header">
               <div class="role">Your Story <span class="pov-badge pov-badge-warn">${escapeHtml(selectedCharName)}\u2019s POV unavailable \u2014 showing shared scene</span></div>
               <div class="narration-controls">
+                ${sceneControls}
                 ${regenBtn}
                 <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
                 <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
               </div>
             </div>
+            ${historicalScene}
             <div class="content">${formatContent(entry.content)}</div>
           </div>
         `;
@@ -532,14 +601,16 @@ export function renderStoryHistory(history, indexOffset = 0) {
         const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
         const ttsContent = btoa(encodeURIComponent(entry.content));
         html += `
-          <div class="story-entry assistant narration" data-index="${globalIndex}">
+          <div class="story-entry assistant narration${activeSceneClass}" data-index="${globalIndex}">
             <div class="narration-header">
               <div class="role">Dungeon Master</div>
               <div class="narration-controls">
+                ${sceneControls}
                 <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
                 <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
               </div>
             </div>
+            ${historicalScene}
             <div class="content">${formatContent(entry.content)}</div>
           </div>
         `;
@@ -592,6 +663,40 @@ function getSelectedCharacterName() {
   const allChars = getState('characters');
   const char = sessionChars.find(c => c.id === charSelect.value) || allChars.find(c => c.id === charSelect.value);
   return char ? char.character_name : null;
+}
+
+export function toggleStoryLogs(triggerButton = null) {
+  const container = document.getElementById('story-container');
+  if (!container) return;
+  const opening = !container.classList.contains('logs-open');
+  container.classList.toggle('logs-open', opening);
+  const button = triggerButton || container.querySelector('.story-logs-btn');
+  if (button) button.textContent = opening ? 'Close Logs' : 'Logs';
+  if (!opening) container.scrollTop = container.scrollHeight;
+}
+
+export async function generatePOVImage(index, characterId, triggerButton = null) {
+  const currentSession = getState('currentSession');
+  if (!currentSession) return;
+  const button = triggerButton || document.querySelector(`.story-entry[data-index="${index}"] .pov-image-btn`);
+  const originalLabel = button?.textContent || 'Illustrate';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Generating...';
+  }
+  showNotification('Generating POV scene...');
+  try {
+    await api(`/api/sessions/${currentSession.id}/generate-pov-image`, 'POST', { index, characterId });
+    showNotification('POV scene ready');
+    await loadSession(currentSession.id);
+  } catch (error) {
+    console.error('POV image generation failed:', error);
+    showNotification(error.message || 'POV scene generation failed');
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+  }
 }
 
 /**
@@ -686,10 +791,11 @@ export function appendStreamChunk(text) {
 
   let streamEl = document.getElementById('streaming-response');
   if (!streamEl) {
+    historyContainer.querySelectorAll('.active-scene-entry').forEach(entry => entry.classList.remove('active-scene-entry'));
     // Create a temporary streaming element
     streamEl = document.createElement('div');
     streamEl.id = 'streaming-response';
-    streamEl.className = 'story-entry assistant narration streaming';
+    streamEl.className = 'story-entry assistant narration streaming active-scene-entry';
     streamEl.innerHTML = `
       <div class="narration-header">
         <div class="role">Dungeon Master</div>

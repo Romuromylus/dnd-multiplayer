@@ -106,10 +106,11 @@ function createAuthRoutes(db, auth) {
     const settings = {};
     const rows = db.prepare('SELECT key, value FROM settings').all();
     rows.forEach(row => {
-      if (row.key === 'game_password' || row.key === 'admin_password' || row.key === 'youtube_api_key') return;
+      if (row.key === 'game_password' || row.key === 'admin_password' || row.key === 'youtube_api_key' || row.key === 'pov_image_api_key') return;
       settings[row.key] = row.value;
     });
     settings.youtube_configured = !!db.prepare("SELECT value FROM settings WHERE key = 'youtube_api_key'").get()?.value;
+    settings.pov_image_configured = !!db.prepare("SELECT value FROM settings WHERE key = 'pov_image_api_key'").get()?.value;
 
     const activeConfig = db.prepare('SELECT name, model FROM api_configs WHERE is_active = 1').get();
     settings.active_api_config = activeConfig || null;
@@ -121,7 +122,17 @@ function createAuthRoutes(db, auth) {
    * POST /api/settings  (admin only)
    */
   router.post('/settings', requireAdmin, (req, res) => {
-    const { max_tokens_before_compact, youtube_dj_enabled, youtube_api_key } = req.body;
+    const {
+      max_tokens_before_compact,
+      youtube_dj_enabled,
+      youtube_api_key,
+      pov_image_enabled,
+      pov_image_provider,
+      pov_image_endpoint,
+      pov_image_api_key,
+      pov_image_model,
+      pov_image_style_prompt
+    } = req.body;
     const updateSetting = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
     if (max_tokens_before_compact !== undefined) {
       updateSetting.run(String(max_tokens_before_compact), 'max_tokens_before_compact');
@@ -131,6 +142,24 @@ function createAuthRoutes(db, auth) {
     }
     if (typeof youtube_api_key === 'string' && youtube_api_key.trim()) {
       updateSetting.run(youtube_api_key.trim().slice(0, 300), 'youtube_api_key');
+    }
+    if (pov_image_enabled !== undefined) {
+      updateSetting.run(pov_image_enabled ? 'true' : 'false', 'pov_image_enabled');
+    }
+    if (['openai', 'nanogpt', 'chat_completions'].includes(pov_image_provider)) {
+      updateSetting.run(pov_image_provider, 'pov_image_provider');
+    }
+    if (typeof pov_image_endpoint === 'string' && pov_image_endpoint.trim()) {
+      updateSetting.run(pov_image_endpoint.trim().slice(0, 500), 'pov_image_endpoint');
+    }
+    if (typeof pov_image_api_key === 'string' && pov_image_api_key.trim()) {
+      updateSetting.run(pov_image_api_key.trim().slice(0, 500), 'pov_image_api_key');
+    }
+    if (typeof pov_image_model === 'string' && pov_image_model.trim()) {
+      updateSetting.run(pov_image_model.trim().slice(0, 200), 'pov_image_model');
+    }
+    if (typeof pov_image_style_prompt === 'string') {
+      updateSetting.run(pov_image_style_prompt.trim().slice(0, 1000), 'pov_image_style_prompt');
     }
     res.json({ success: true });
   });

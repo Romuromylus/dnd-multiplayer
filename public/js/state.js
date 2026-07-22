@@ -49,6 +49,7 @@ const state = {
   pendingChoices: null,
   activeCombat: null,
   activeMusic: null,
+  povImageEnabled: false,
 };
 
 export function getState(key) {

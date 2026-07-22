@@ -244,6 +244,12 @@ export function initSocket() {
     if (currentSession && currentSession.id === sessionId) renderYouTubeDJ(music);
   });
 
+  socket.off('session_updated');
+  socket.on('session_updated', ({ id }) => {
+    const currentSession = getState('currentSession');
+    if (currentSession && currentSession.id === id) loadSession(id);
+  });
+
   // Turn processing error — show retry button
   socket.off('turn_error');
   socket.on('turn_error', ({ sessionId, error }) => {

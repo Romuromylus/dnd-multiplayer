@@ -24,6 +24,14 @@ export async function loadSettings() {
     document.getElementById('youtube-dj-status').textContent = settings.youtube_configured
       ? 'YouTube API key saved. Leave the field blank to keep it.'
       : 'Add a YouTube Data API v3 key to enable playback.';
+    document.getElementById('pov-image-enabled').checked = settings.pov_image_enabled === 'true';
+    document.getElementById('pov-image-provider').value = settings.pov_image_provider || 'openai';
+    document.getElementById('pov-image-endpoint').value = settings.pov_image_endpoint || 'https://api.openai.com/v1';
+    document.getElementById('pov-image-model').value = settings.pov_image_model || 'gpt-image-1';
+    document.getElementById('pov-image-style-prompt').value = settings.pov_image_style_prompt || '';
+    document.getElementById('pov-image-status').textContent = settings.pov_image_configured
+      ? 'Image API key saved. Leave the field blank to keep it.'
+      : 'Add an image API key, endpoint, and model to enable illustrations.';
     await loadApiConfigs();
 
     // Restore TTS settings from localStorage
@@ -46,12 +54,19 @@ export async function saveSettings() {
   const settings = {
     max_tokens_before_compact: document.getElementById('max-tokens').value,
     youtube_dj_enabled: document.getElementById('youtube-dj-enabled').checked,
-    youtube_api_key: document.getElementById('youtube-api-key').value
+    youtube_api_key: document.getElementById('youtube-api-key').value,
+    pov_image_enabled: document.getElementById('pov-image-enabled').checked,
+    pov_image_provider: document.getElementById('pov-image-provider').value,
+    pov_image_endpoint: document.getElementById('pov-image-endpoint').value,
+    pov_image_api_key: document.getElementById('pov-image-api-key').value,
+    pov_image_model: document.getElementById('pov-image-model').value,
+    pov_image_style_prompt: document.getElementById('pov-image-style-prompt').value
   };
 
   try {
     await api('/api/settings', 'POST', settings);
     document.getElementById('youtube-api-key').value = '';
+    document.getElementById('pov-image-api-key').value = '';
     document.getElementById('settings-status').textContent = 'Settings saved successfully!';
     setTimeout(() => { document.getElementById('settings-status').textContent = ''; }, 3000);
   } catch (error) {

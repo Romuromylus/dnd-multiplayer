@@ -15,6 +15,14 @@ const {
   getCombatSummary
 } = require('../services/tacticalCombatService');
 const { searchYoutubeMusic } = require('../services/youtubeService');
+const {
+  generatePOVSceneImage,
+  loadCharacterReference,
+  savePOVSceneImage,
+  deletePOVSceneImage,
+  deleteEntryPOVImages,
+  deleteSessionPOVScenes
+} = require('../services/imageGenerationService');
 
 /**
  * Create session router with dependencies
@@ -51,6 +59,7 @@ function createSessionRoutes(deps) {
   const router = express.Router();
   const { requireUser, requireAdmin } = auth;
   const { findCharacterByName } = tagParser;
+  const povImageJobs = new Set();
 
   const sendToSession = typeof emitToSession === 'function'
     ? emitToSession
@@ -286,8 +295,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(req.params.id);
     const sessionChars = getSessionCharacters(req.params.id);
+    const povImageEnabled = db.prepare("SELECT value FROM settings WHERE key = 'pov_image_enabled'").get()?.value === 'true';
 
-    res.json({ session, pendingActions, sessionCharacters: sessionChars, combat: getActiveCombat(req.params.id) });
+    res.json({ session, pendingActions, sessionCharacters: sessionChars, combat: getActiveCombat(req.params.id), features: { povImageEnabled } });
   });
 
   /**
@@ -409,6 +419,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       const result = db.prepare('DELETE FROM game_sessions WHERE id = ?').run(sessionId);
 
       if (result.changes > 0) {
+        deleteSessionPOVScenes(sessionId);
         io.emit('session_deleted', sessionId);
         res.json({ success: true });
       } else {
@@ -653,9 +664,12 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
       latestEntry.povs = latestEntry.povs || {};
       latestEntry.povs[character.character_name] = pov;
+      const oldImageUrl = latestEntry.povImages?.[character.id]?.url;
+      if (latestEntry.povImages) delete latestEntry.povImages[character.id];
       latestHistory[index] = latestEntry;
       db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
         .run(JSON.stringify(latestHistory), sessionId);
+      if (oldImageUrl) deletePOVSceneImage(oldImageUrl);
 
       sendToSession(sessionId, 'session_updated', { id: sessionId });
       console.log(`Regenerated POV for ${character.character_name} on session ${sessionId} index ${index}`);
@@ -663,6 +677,97 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     } catch (err) {
       console.error('regenerate-pov error:', err);
       res.status(500).json({ error: 'Failed to regenerate POV: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/sessions/:id/generate-pov-image
+   * Illustrate one POV using that character's uploaded avatar as the likeness reference.
+   * Players may only generate images for characters they own; admins may generate any.
+   */
+  router.post('/:id/generate-pov-image', requireUser, async (req, res) => {
+    const sessionId = req.params.id;
+    const { index, characterId } = req.body || {};
+    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ error: 'Valid history index is required' });
+    if (!characterId) return res.status(400).json({ error: 'characterId is required' });
+
+    const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
+    if (!isCharacterInSession(sessionId, characterId)) return res.status(400).json({ error: 'Character is not in this session' });
+    if (!userOwnsCharacter(req.user, characterId)) return res.status(403).json({ error: 'You can only illustrate POVs for characters you own' });
+
+    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId);
+    if (!character) return res.status(404).json({ error: 'Character not found' });
+    const history = JSON.parse(session.full_history || '[]');
+    const entry = history[index];
+    if (!entry || entry.role !== 'assistant') return res.status(400).json({ error: 'Target entry is not a narration' });
+    const povContent = entry.povs?.[character.character_name] || entry.content || '';
+    if (!povContent.trim()) return res.status(400).json({ error: 'This POV has no narration to illustrate' });
+
+    const settingRows = db.prepare(`SELECT key, value FROM settings WHERE key IN (
+      'pov_image_enabled', 'pov_image_provider', 'pov_image_endpoint',
+      'pov_image_api_key', 'pov_image_model', 'pov_image_style_prompt'
+    )`).all();
+    const settings = Object.fromEntries(settingRows.map(row => [row.key, row.value]));
+    if (settings.pov_image_enabled !== 'true') return res.status(400).json({ error: 'POV scene images are disabled in Admin Settings' });
+    if (!settings.pov_image_endpoint || !settings.pov_image_api_key || !settings.pov_image_model) {
+      return res.status(400).json({ error: 'POV image generation is not fully configured in Admin Settings' });
+    }
+
+    const aiConfig = getActiveApiConfig();
+    if (!aiConfig?.api_key) return res.status(400).json({ error: 'No active narration API configuration' });
+    const jobKey = `${sessionId}:${index}:${characterId}`;
+    if (povImageJobs.has(jobKey)) return res.status(409).json({ error: 'This POV image is already being generated' });
+    povImageJobs.add(jobKey);
+
+    let generatedUrl = null;
+    try {
+      const prompt = await aiService.generatePOVImagePrompt(
+        { endpoint: aiConfig.endpoint, api_key: aiConfig.api_key, model: aiConfig.model },
+        character,
+        povContent,
+        settings.pov_image_style_prompt || ''
+      );
+      const reference = loadCharacterReference(character);
+      const image = await generatePOVSceneImage({
+        provider: settings.pov_image_provider,
+        endpoint: settings.pov_image_endpoint,
+        apiKey: settings.pov_image_api_key,
+        model: settings.pov_image_model
+      }, prompt, reference);
+      generatedUrl = savePOVSceneImage(image, sessionId);
+
+      const latestSession = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+      const latestHistory = JSON.parse(latestSession?.full_history || '[]');
+      const latestEntry = latestHistory[index];
+      const latestPov = latestEntry?.povs?.[character.character_name] || latestEntry?.content || '';
+      if (!latestEntry || latestEntry.role !== 'assistant' || latestPov !== povContent) {
+        deletePOVSceneImage(generatedUrl);
+        return res.status(409).json({ error: 'The POV changed while its image was generating. Please try again.' });
+      }
+
+      const oldImageUrl = latestEntry.povImages?.[character.id]?.url;
+      latestEntry.povImages = latestEntry.povImages || {};
+      latestEntry.povImages[character.id] = {
+        url: generatedUrl,
+        prompt,
+        characterName: character.character_name,
+        createdAt: new Date().toISOString(),
+        usedAvatarReference: !!reference
+      };
+      latestHistory[index] = latestEntry;
+      db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(latestHistory), sessionId);
+      if (oldImageUrl && oldImageUrl !== generatedUrl) deletePOVSceneImage(oldImageUrl);
+
+      sendToSession(sessionId, 'session_updated', { id: sessionId, reason: 'pov_image' });
+      res.json({ success: true, image: latestEntry.povImages[character.id] });
+    } catch (error) {
+      if (generatedUrl) deletePOVSceneImage(generatedUrl);
+      logger.error('POV scene image generation failed', { sessionId, characterId, error: error.message });
+      res.status(502).json({ error: 'POV scene image generation failed: ' + error.message });
+    } finally {
+      povImageJobs.delete(jobKey);
     }
   });
 
@@ -814,6 +919,7 @@ RULES:
 
     // Remove everything from turnStartIdx onwards (includes the turn's context, actions, gm_nudges, and AI response)
     // Don't filter out gm_nudges from remaining history - they belong to earlier turns
+    const removedTurnEntries = fullHistory.slice(turnStartIdx);
     fullHistory = fullHistory.slice(0, turnStartIdx);
 
     // Adjust compacted_count if we truncated into the compacted region
@@ -825,6 +931,7 @@ RULES:
 
     db.prepare('UPDATE game_sessions SET full_history = ?, compacted_count = ? WHERE id = ?')
       .run(JSON.stringify(fullHistory), compactedCount, sessionId);
+    removedTurnEntries.forEach(deleteEntryPOVImages);
 
     if (compactedCount !== originalCompactedCount) {
       console.log(`Reroll: Adjusted compacted_count from ${originalCompactedCount} to ${compactedCount}`);
@@ -1199,6 +1306,7 @@ Generate ONLY a brief action description.`;
 
       db.prepare('UPDATE game_sessions SET full_history = ?, compacted_count = ? WHERE id = ?')
         .run(JSON.stringify(history), compactedCount, sessionId);
+      deleteEntryPOVImages(deletedMessage);
 
       sendToSession(sessionId, 'session_updated', { id: sessionId });
 

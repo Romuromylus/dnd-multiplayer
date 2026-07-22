@@ -16,6 +16,8 @@ const {
   POV_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
   POV_MAX_TOKENS,
+  POV_IMAGE_DIRECTOR_PROMPT,
+  POV_IMAGE_PROMPT_MAX_WORDS,
 } = require('../server/services/aiService.js');
 
 describe('extractFinishReason', () => {
@@ -169,5 +171,16 @@ describe('generation length budgets', () => {
   test('output token caps are bounded enough to avoid runaway generations', () => {
     assert.ok(NARRATION_MAX_TOKENS <= 3500);
     assert.ok(POV_MAX_TOKENS <= 2400);
+  });
+});
+
+describe('POV image direction', () => {
+  test('uses the avatar as likeness reference without splitting aliases', () => {
+    assert.equal(POV_IMAGE_PROMPT_MAX_WORDS, 180);
+    assert.match(POV_IMAGE_DIRECTOR_PROMPT, /avatar as a reference/);
+    assert.match(POV_IMAGE_DIRECTOR_PROMPT, /alias, disguise, masquerade/);
+    assert.match(POV_IMAGE_DIRECTOR_PROMPT, /never a second copy/);
+    assert.match(POV_IMAGE_DIRECTOR_PROMPT, /16:9/);
+    assert.match(POV_IMAGE_DIRECTOR_PROMPT, /under 180 words/);
   });
 });
