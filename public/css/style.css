@@ -801,9 +801,12 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .music-dj-now { display: flex; gap: 6px; min-width: 0; align-items: center; }
 .music-dj-label { color: var(--accent); font-family: var(--font-mono); font-weight: 700; }
 .music-dj-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-#youtube-dj-host { width: 1px; height: 1px; overflow: hidden; }
+.music-dj-notice { color: var(--warning); white-space: nowrap; }
+.youtube-dj-host-shell { position: absolute; left: -10000px; width: 200px; height: 113px; overflow: hidden; pointer-events: none; }
+#youtube-dj-host { width: 200px; height: 113px; }
 .music-dj-controls { gap: 4px; }
 .music-dj-controls button { min-height: 26px; padding: 3px 6px; font-size: 10px; }
+.music-dj-controls button.needs-unlock { color: var(--bg-deep); background: var(--warning); border-color: var(--warning); font-weight: 700; }
 .music-dj-controls input { width: 60px; }
 
 @media (max-width: 700px) {

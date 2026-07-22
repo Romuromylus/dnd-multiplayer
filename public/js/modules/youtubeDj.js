@@ -1,11 +1,16 @@
 import { api } from '../api.js';
 import { getState, setState } from '../state.js';
-import { escapeHtml } from '../utils/formatters.js';
 import { showNotification } from '../utils/dom.js';
 
 let apiPromise = null;
 let player = null;
-let loadedVideoId = null;
+let playerReadyPromise = null;
+let playerReady = false;
+let loadedTrackKey = null;
+let activeMusic = null;
+let playbackState = 'idle';
+let autoplayBlocked = false;
+let playbackCheckTimer = null;
 let previousVolume = Number(localStorage.getItem('dnd-youtube-volume') || 45);
 let lastAudibleVolume = previousVolume > 0 ? previousVolume : 45;
 
@@ -23,22 +28,49 @@ function loadYouTubeApi() {
 }
 
 async function ensurePlayer() {
-  if (player) return player;
+  if (playerReady && player) return player;
+  if (playerReadyPromise) return playerReadyPromise;
   await loadYouTubeApi();
   const host = document.getElementById('youtube-dj-host');
   if (!host) return null;
-  return new Promise(resolve => {
+  playerReadyPromise = new Promise(resolve => {
     player = new window.YT.Player(host, {
-      width: '1', height: '1',
+      width: '200', height: '113',
       playerVars: { autoplay: 1, playsinline: 1, controls: 0, rel: 0 },
       events: {
-        onReady: () => { player.setVolume(previousVolume); resolve(player); },
+        onReady: () => {
+          playerReady = true;
+          player.setVolume(previousVolume);
+          updatePlaybackControls();
+          resolve(player);
+        },
         onStateChange: event => {
-          if (event.data === window.YT.PlayerState.ENDED) { player.seekTo(0, true); player.playVideo(); }
+          if (event.data === window.YT.PlayerState.PLAYING) {
+            autoplayBlocked = false;
+            playbackState = 'playing';
+          } else if (event.data === window.YT.PlayerState.PAUSED || event.data === window.YT.PlayerState.CUED) {
+            playbackState = 'paused';
+          } else if (event.data === window.YT.PlayerState.BUFFERING) {
+            playbackState = 'loading';
+          } else if (event.data === window.YT.PlayerState.ENDED) {
+            player.seekTo(0, true);
+            player.playVideo();
+          }
+          updatePlaybackControls();
+        },
+        onAutoplayBlocked: () => {
+          autoplayBlocked = true;
+          playbackState = 'paused';
+          updatePlaybackControls();
+        },
+        onError: () => {
+          playbackState = 'error';
+          updatePlaybackControls();
         }
       }
     });
   });
+  return playerReadyPromise;
 }
 
 function elapsedSeconds(music) {
@@ -51,38 +83,99 @@ function syncVolumeControl() {
   if (input) input.value = String(previousVolume);
 }
 
+function trackKey(music) {
+  return music?.videoId ? `${music.videoId}:${music.startedAt || ''}` : null;
+}
+
+function updatePlaybackControls() {
+  const button = document.getElementById('youtube-dj-playback-btn');
+  const notice = document.getElementById('youtube-dj-playback-notice');
+  if (button) {
+    button.disabled = !playerReady;
+    button.classList.toggle('needs-unlock', autoplayBlocked);
+    button.textContent = !playerReady
+      ? 'Loading...'
+      : autoplayBlocked
+        ? 'Enable Music'
+        : playbackState === 'playing'
+          ? 'Pause'
+          : 'Play';
+  }
+  if (notice) {
+    notice.hidden = !autoplayBlocked;
+    notice.textContent = autoplayBlocked ? 'Tap Enable Music on this device.' : '';
+  }
+}
+
+function ensurePlayerMarkup(container) {
+  if (container.querySelector('.music-dj-now')) return;
+  container.innerHTML = `<div class="music-dj-now"><span class="music-dj-label">DJ</span><span class="music-dj-title"></span><span id="youtube-dj-playback-notice" class="music-dj-notice" role="status" aria-live="polite" hidden></span></div><div class="youtube-dj-host-shell"><div id="youtube-dj-host" aria-hidden="true"></div></div><div class="music-dj-controls"><button id="youtube-dj-playback-btn" onclick="toggleDJPlayback()" title="Play or pause" disabled>Loading...</button><button onclick="muteDJPlayback()" title="Mute or restore volume">Mute</button><input type="range" min="0" max="100" value="${previousVolume}" oninput="setDJVolume(this.value)" aria-label="Music volume"></div>`;
+}
+
+function scheduleAutoplayCheck() {
+  clearTimeout(playbackCheckTimer);
+  playbackCheckTimer = setTimeout(() => {
+    if (!player || !activeMusic || previousVolume === 0) return;
+    const state = player.getPlayerState?.();
+    if (state !== window.YT.PlayerState.PLAYING && state !== window.YT.PlayerState.BUFFERING) {
+      autoplayBlocked = true;
+      playbackState = 'paused';
+      updatePlaybackControls();
+    }
+  }, 1800);
+}
+
 async function playMusic(music) {
   const instance = await ensurePlayer();
-  if (!instance || !music?.videoId || loadedVideoId === music.videoId) return;
-  loadedVideoId = music.videoId;
+  const nextTrackKey = trackKey(music);
+  if (!instance || !nextTrackKey || loadedTrackKey === nextTrackKey) return;
+  loadedTrackKey = nextTrackKey;
+  autoplayBlocked = false;
+  playbackState = 'loading';
+  updatePlaybackControls();
   instance.loadVideoById({ videoId: music.videoId, startSeconds: elapsedSeconds(music) });
   instance.setVolume(previousVolume);
+  scheduleAutoplayCheck();
 }
 
 export function renderYouTubeDJ(music) {
   const container = document.getElementById('music-dj-player');
   if (!container) return;
+  activeMusic = music?.videoId ? music : null;
   setState({ activeMusic: music?.videoId ? music : null });
   if (!music?.videoId) {
     container.hidden = true;
     try { player?.stopVideo(); } catch (error) {}
-    loadedVideoId = null;
+    loadedTrackKey = null;
+    playbackState = 'idle';
+    autoplayBlocked = false;
+    clearTimeout(playbackCheckTimer);
     return;
   }
-  if (player) {
-    try { player.destroy(); } catch (error) {}
-    player = null;
-    loadedVideoId = null;
-  }
   container.hidden = false;
-  container.innerHTML = `<div class="music-dj-now"><span class="music-dj-label">DJ</span><span class="music-dj-title" title="${escapeHtml(music.title || music.query)}">${escapeHtml(music.title || music.query)}</span></div><div id="youtube-dj-host" aria-hidden="true"></div><div class="music-dj-controls"><button onclick="toggleDJPlayback()" title="Play or pause">Play/Pause</button><button onclick="muteDJPlayback()" title="Mute or restore volume">Mute</button><input type="range" min="0" max="100" value="${previousVolume}" oninput="setDJVolume(this.value)" aria-label="Music volume"></div>`;
+  ensurePlayerMarkup(container);
+  const title = container.querySelector('.music-dj-title');
+  if (title) {
+    title.textContent = music.title || music.query;
+    title.title = music.title || music.query;
+  }
+  updatePlaybackControls();
   playMusic(music).catch(error => showNotification(error.message || 'YouTube playback could not start.'));
 }
 
 export function toggleDJPlayback() {
-  if (!player) return;
+  if (!playerReady || !player) return;
   const playing = player.getPlayerState?.() === window.YT.PlayerState.PLAYING;
-  if (playing) player.pauseVideo(); else player.playVideo();
+  if (playing) {
+    player.pauseVideo();
+  } else {
+    autoplayBlocked = false;
+    playbackState = 'loading';
+    if (previousVolume === 0) setDJVolume(lastAudibleVolume);
+    player.playVideo();
+    scheduleAutoplayCheck();
+  }
+  updatePlaybackControls();
 }
 
 export function setDJVolume(value) {
