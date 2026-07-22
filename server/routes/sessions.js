@@ -1045,7 +1045,8 @@ Generate ONLY a brief action description.`;
     console.log('Session characters:', characters.map(c => c.character_name));
     for (const entry of history) {
       if (entry.role === 'assistant') {
-        const xpMatches = entry.content.match(/\[XP:\s*([^\]]+)\]/gi);
+        const scanText = `${entry.content || ''}\n${entry.stateTags || ''}`;
+        const xpMatches = scanText.match(/\[XP:\s*([^\]]+)\]/gi);
         if (xpMatches) {
           console.log('Found XP tags:', xpMatches);
           for (const match of xpMatches) {
@@ -1104,7 +1105,8 @@ Generate ONLY a brief action description.`;
 
     for (const entry of history) {
       if (entry.role === 'assistant') {
-        const goldMatches = entry.content.match(/\[(MONEY|GOLD):([^\]]+)\]/gi);
+        const scanText = `${entry.content || ''}\n${entry.stateTags || ''}`;
+        const goldMatches = scanText.match(/\[(MONEY|GOLD):([^\]]+)\]/gi);
         if (goldMatches) {
           for (const match of goldMatches) {
             const goldAwards = match.replace(/\[(MONEY|GOLD):/i, '').replace(']', '').split(',');
@@ -1123,12 +1125,12 @@ Generate ONLY a brief action description.`;
           }
         }
 
-        const itemMatches = entry.content.match(/\[ITEM:([^\]]+)\]/gi);
+        const itemMatches = scanText.match(/\[ITEM:([^\]]+)\]/gi);
         if (itemMatches) {
           for (const match of itemMatches) {
             const itemAwards = match.replace(/\[ITEM:/i, '').replace(']', '').split(',');
             for (const award of itemAwards) {
-              const itemMatch = award.trim().match(/(.+?)\s*([+-])(.+)/);
+              const itemMatch = award.trim().match(/(.+?)\s+([+-])\s*(.+)/);
               if (itemMatch) {
                 const charName = itemMatch[1].trim();
                 const isAdding = itemMatch[2] === '+';
@@ -1205,12 +1207,13 @@ Generate ONLY a brief action description.`;
 
     for (const entry of history) {
       if (entry.role === 'assistant') {
-        const itemMatches = entry.content.match(/\[ITEM:([^\]]+)\]/gi);
+        const scanText = `${entry.content || ''}\n${entry.stateTags || ''}`;
+        const itemMatches = scanText.match(/\[ITEM:([^\]]+)\]/gi);
         if (itemMatches) {
           for (const match of itemMatches) {
             const itemAwards = match.replace(/\[ITEM:/i, '').replace(']', '').split(',');
             for (const award of itemAwards) {
-              const itemMatch = award.trim().match(/(.+?)\s*([+-])(.+)/);
+              const itemMatch = award.trim().match(/(.+?)\s+([+-])\s*(.+)/);
               if (itemMatch) {
                 const charName = itemMatch[1].trim();
                 const isAdding = itemMatch[2] === '+';
@@ -1290,7 +1293,7 @@ Generate ONLY a brief action description.`;
 
     // Scan all messages for AC and spell slot information
     for (const entry of history) {
-      const content = entry.content || '';
+      const content = `${entry.content || ''}\n${entry.stateTags || ''}`;
 
       // Parse [AC:] tags
       const acMatches = content.match(/\[AC:([^\]]+)\]/gi);

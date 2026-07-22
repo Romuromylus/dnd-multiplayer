@@ -536,17 +536,18 @@ Go through the SCENE and, for every mechanical change it describes — damage ta
 
 ## OUTPUT FORMAT (STRICT)
 - Output ONLY tags, one per line. No prose, no reasoning, no headers, no JSON, no code fences, no blank lines.
+- One character and one change per tag. NEVER combine characters or changes with commas — write a separate line for each. Two wounded heroes are two [HP:] lines, never [HP: A -5, B -3].
 - Use each character's name EXACTLY as it appears in PARTY STATE.
 - If truly nothing mechanical changed this scene, output the single line: NO_CHANGES
 
 ## TAGS
 [HP: Name -10] damage taken | [HP: Name +5] healing received | [HP: Name =30] set to an exact value
-[XP: Name +100] experience earned. Guidance on amount: 50 for an easy challenge, 100 medium, 200 hard, 300+ a boss or major victory. Combine multiple: [XP: Thorin +50, Elara +50]. Award XP only when the party actually overcomes something; none for trivial or purely social beats.
+[XP: Name +100] experience earned. Guidance on amount: 50 for an easy challenge, 100 medium, 200 hard, 300+ a boss or major victory. Award XP only when the party actually overcomes something; none for trivial or purely social beats. If several characters earn XP, write a separate [XP:] line for each.
 [MONEY: Name +50] coin gained | [MONEY: Name -25] coin spent
 [ITEM: Name +Sword of Fire] item gained | [ITEM: Name +Health Potion x3] several gained | [ITEM: Name -Health Potion] item used or lost
 [SPELL: Name -1st] a spell slot of that level was spent (cantrips cost nothing) | [SPELL: Name +1st] one slot of that level restored
 [AC: Name +Shield of Faith +2 spell] a temporary armor bonus took effect | [AC: Name -Shield of Faith] it ended | [AC: Name base Plate Armor 18] base armor changed
-[REST: Party] the whole party took a long rest | [REST: Name] one character did. A long rest already restores HP, spell slots, and inspiration on its own — use [REST:] alone for it; do NOT also emit [HP:]/[SPELL:] tags for that same rest.
+[REST: Party] the whole party took a long rest | [REST: Name] one character did. A long rest restores HP, spell slots, and inspiration on its own. If a character rests this scene, emit ONLY their [REST:] tag — do NOT also emit any [HP:] or [SPELL:] tag for that character this turn (not even for damage taken earlier in the same scene); the rest leaves them at full.
 
 ## RULES
 - Read the fiction for damage and healing. "A blade opened a gash across his ribs" is damage; "she gulped the healing draught" is healing. Estimate a sensible amount from how severe the scene makes it sound and the target's max HP in PARTY STATE. Never take a character lower than the scene supports.

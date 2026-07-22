@@ -494,6 +494,12 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   if (hasPOVs) {
     historyEntry.povs = parsedPOVs;
   }
+  // Persist the bookkeeper's tags on the entry (like povs, never sent to the model): the
+  // narration itself is now tag-free, so the admin "recalculate from history" endpoints read
+  // the state changes from here. Older entries (pre-bookkeeper) still carry tags in content.
+  if (stateTags) {
+    historyEntry.stateTags = stateTags;
+  }
   fullHistory.push(historyEntry);
 
   // Snapshot character states BEFORE applying tags (for reroll restore)

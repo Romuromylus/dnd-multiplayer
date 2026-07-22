@@ -32,9 +32,10 @@ function colorToHueSat(input) {
     g = parseInt(m[1].slice(2, 4), 16);
     b = parseInt(m[1].slice(4, 6), 16);
   } else if ((m = s.match(/^rgba?\(([^)]+)\)/))) {
-    const parts = m[1].split(',').map(p => parseFloat(p));
+    // Accept comma AND CSS Color 4 space/slash separators; require 3 valid channels.
+    const parts = m[1].split(/[\s,/]+/).map(p => parseFloat(p)).filter(p => !Number.isNaN(p));
+    if (parts.length < 3) return null;
     [r, g, b] = parts;
-    if ([r, g, b].some(v => Number.isNaN(v))) return null;
   } else {
     return null;
   }
@@ -99,10 +100,17 @@ function sanitizeHtml(html) {
         const hsl = colorToHueSat(styleColor || attrColor);
         if (hsl) {
           if (attrColor) el.removeAttribute('color');
-          let rest = styleAttr.replace(/(?:^|;)\s*color\s*:\s*[^;]+;?/i, '').replace(/;;+/g, ';').replace(/^;|;$/g, '').trim();
+          // Drop only the top-level `color` declaration (keep background-color/border-color and
+          // everything else) by splitting into declarations — a regex spanning `;color:…;` could
+          // fuse the neighbours of a middle color into one invalid declaration.
+          const rest = styleAttr
+            .split(';')
+            .map(d => d.trim())
+            .filter(d => d && !/^color\s*:/i.test(d))
+            .join('; ');
           const sat = Math.min(80, Math.max(45, hsl.s));
           const vars = `--npc-h:${hsl.h};--npc-s:${sat}%`;
-          el.setAttribute('style', rest ? `${rest};${vars}` : vars);
+          el.setAttribute('style', rest ? `${rest}; ${vars}` : vars);
           el.classList.add('npc-line');
         }
       }
