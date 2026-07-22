@@ -194,14 +194,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
               // Step 2: Convert to per-character POVs in parallel (with retry)
               let parsedPOVs = {};
               if (characters.length > 0) {
-                // Build party roster so POV converter knows all character names
-                const partyRoster = characters.map(c => {
-                  let entry = `- ${c.character_name}, ${c.race} ${c.class}`;
-                  if (c.appearance) entry += ` — ${c.appearance}`;
-                  return entry;
-                }).join('\n');
-
                 const povResults = await Promise.all(characters.map(async (c) => {
+                  const partyRoster = aiService.buildPOVPartyRoster
+                    ? aiService.buildPOVPartyRoster(characters, c)
+                    : characters.map(char => `- ${char.character_name}, ${char.race} ${char.class}`).join('\n');
                   const pov = await aiService.generateCharacterPOV(aiConfig, c, openingScene, partyRoster);
                   return pov ? { name: c.character_name, pov } : null;
                 }));
@@ -465,11 +461,12 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     }
 
     const sessionChars = getSessionCharacters(sessionId);
-    const partyRoster = sessionChars.map(c => {
-      let line = `- ${c.character_name}, ${c.race} ${c.class}`;
-      if (c.appearance) line += ` — ${c.appearance}`;
-      return line;
-    }).join('\n');
+    const partyRoster = aiService.buildPOVPartyRoster
+      ? aiService.buildPOVPartyRoster(sessionChars, character)
+      : sessionChars.map(c => `- ${c.character_name}, ${c.race} ${c.class}`).join('\n');
+    const povCampaignContext = aiService.buildPOVCampaignContext
+      ? aiService.buildPOVCampaignContext(history.slice(0, index))
+      : '';
 
     const aiConfig = {
       endpoint: apiConfig.endpoint,
@@ -479,7 +476,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
     try {
       const pov = await aiService.generateCharacterPOV(
-        aiConfig, character, entry.content || '', partyRoster, session.story_summary || ''
+        aiConfig, character, entry.content || '', partyRoster, session.story_summary || '', povCampaignContext
       );
       if (!pov) {
         return res.status(502).json({ error: 'POV generation failed after retry' });

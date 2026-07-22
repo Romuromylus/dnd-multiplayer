@@ -9,6 +9,8 @@ const {
   buildContinuationMessages,
   DEFAULT_SYSTEM_PROMPT,
   POV_CONVERSION_PROMPT,
+  buildPOVPartyRoster,
+  buildPOVCampaignContext,
   NARRATION_WORD_LIMIT,
   POV_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
@@ -29,6 +31,62 @@ describe('extractFinishReason', () => {
   test('returns null when finish reason is omitted', () => {
     assert.equal(extractFinishReason({ choices: [{ message: { content: 'ok' } }] }), null);
     assert.equal(extractFinishReason(null), null);
+  });
+});
+
+describe('POV campaign context', () => {
+  test('prompt locks aliases and disguises to the target identity', () => {
+    assert.match(POV_CONVERSION_PROMPT, /masquerading as/);
+    assert.match(POV_CONVERSION_PROMPT, /same "you"/);
+    assert.match(POV_CONVERSION_PROMPT, /alias\/disguise\/public identity/);
+  });
+
+  test('party roster gives the target full private context without exposing other backstories', () => {
+    const roster = buildPOVPartyRoster([
+      {
+        id: 'violeta',
+        character_name: 'Violeta',
+        race: 'Changeling',
+        class: 'Rogue',
+        background: 'Charlatan',
+        appearance: 'Often wears Julius as a public face.',
+        backstory: 'Violeta maintains the Julius persona to move unseen.'
+      },
+      {
+        id: 'achilles',
+        character_name: 'Achilles',
+        race: 'Human',
+        class: 'Fighter',
+        appearance: 'Broad-shouldered veteran.',
+        backstory: 'Secret oath no other player should receive in their prompt roster.'
+      }
+    ], { id: 'violeta', character_name: 'Violeta' });
+
+    assert.match(roster, /Violeta, Changeling Rogue/);
+    assert.match(roster, /Background: Charlatan/);
+    assert.match(roster, /Julius persona/);
+    assert.match(roster, /Achilles, Human Fighter/);
+    assert.doesNotMatch(roster, /Secret oath/);
+  });
+
+  test('recent POV context includes visible actions but strips hidden context, GM notes, and stored POV blobs', () => {
+    const context = buildPOVCampaignContext([
+      { role: 'user', type: 'context', hidden: true, content: 'private party sheet' },
+      { role: 'user', type: 'action', character_name: 'Violeta', content: 'I keep masquerading as Julius while questioning the guard.' },
+      {
+        role: 'assistant',
+        type: 'narration',
+        content: 'Julius keeps the guard talking by the door.',
+        povs: { Violeta: 'private generated POV should not be recycled' }
+      },
+      { role: 'user', type: 'gm_nudge', content: 'secret GM-only instruction' }
+    ]);
+
+    assert.match(context, /\[Violeta\]: I keep masquerading as Julius/);
+    assert.match(context, /\[DM\]: Julius keeps the guard talking/);
+    assert.doesNotMatch(context, /private party sheet/);
+    assert.doesNotMatch(context, /secret GM-only instruction/);
+    assert.doesNotMatch(context, /private generated POV/);
   });
 });
 

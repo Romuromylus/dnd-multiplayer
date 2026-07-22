@@ -16,6 +16,93 @@ const NARRATION_CONTINUATION_MAX_TOKENS = 1200;
 const POV_MAX_TOKENS = 2400;
 const POV_CONTINUATION_MAX_TOKENS = 800;
 const OPENING_SCENE_MAX_TOKENS = 2800;
+const POV_RECENT_CONTEXT_LIMIT = 14;
+const POV_CONTEXT_ENTRY_MAX_CHARS = 900;
+const POV_CONTEXT_MAX_CHARS = 7000;
+const POV_CHARACTER_FIELD_MAX_CHARS = 1200;
+
+function compactPromptText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function truncatePromptText(value, maxChars) {
+  const text = compactPromptText(value);
+  if (!text || text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function formatCharacterClass(character = {}) {
+  let classDisplay = character.class || 'Adventurer';
+  try {
+    const classes = JSON.parse(character.classes || '{}');
+    if (classes && Object.keys(classes).length > 0) {
+      classDisplay = Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ');
+    }
+  } catch (e) {}
+  return classDisplay;
+}
+
+function appendCharacterField(parts, label, value, maxChars = POV_CHARACTER_FIELD_MAX_CHARS) {
+  const text = truncatePromptText(value, maxChars);
+  if (text) parts.push(`${label}: ${text}`);
+}
+
+function formatCharacterForPOVContext(character = {}, options = {}) {
+  const includePrivate = !!options.includePrivate;
+  const parts = [
+    `${character.character_name || 'Unknown'}, ${character.race || 'Unknown race'} ${formatCharacterClass(character)}`
+  ];
+
+  appendCharacterField(parts, 'Appearance', character.appearance, 500);
+  if (includePrivate) {
+    appendCharacterField(parts, 'Background', character.background, 400);
+    appendCharacterField(parts, 'Backstory', character.backstory);
+    appendCharacterField(parts, 'Skills', character.skills, 500);
+    appendCharacterField(parts, 'Spells', character.spells, 500);
+    appendCharacterField(parts, 'Passives', character.passives, 500);
+    appendCharacterField(parts, 'Class Features', character.class_features, 700);
+    appendCharacterField(parts, 'Feats', character.feats, 500);
+  }
+
+  return `- ${parts.join(' | ')}`;
+}
+
+function buildPOVPartyRoster(characters = [], targetCharacter = null) {
+  const targetId = targetCharacter?.id;
+  const targetName = targetCharacter?.character_name;
+  return characters.map((character) => formatCharacterForPOVContext(character, {
+    includePrivate: (!!targetId && character.id === targetId)
+      || (!!targetName && character.character_name === targetName)
+  })).join('\n');
+}
+
+function formatPOVHistoryEntry(entry) {
+  if (!entry || entry.hidden || entry.type === 'context' || entry.type === 'gm_nudge') return null;
+
+  const content = truncatePromptText(entry.content || '', POV_CONTEXT_ENTRY_MAX_CHARS);
+  if (!content) return null;
+
+  if (entry.role === 'assistant' || entry.type === 'narration') {
+    return `[DM]: ${content}`;
+  }
+  if (entry.type === 'action' && entry.character_name) {
+    return `[${entry.character_name}]: ${content}`;
+  }
+  if (entry.character_name) {
+    return `[${entry.character_name}]: ${content}`;
+  }
+  if (entry.role === 'user') {
+    return `[Player]: ${content}`;
+  }
+  return `[${entry.role || 'Entry'}]: ${content}`;
+}
+
+function buildPOVCampaignContext(history = [], options = {}) {
+  const limit = Math.max(1, parseInt(options.limit, 10) || POV_RECENT_CONTEXT_LIMIT);
+  const maxChars = Math.max(1000, parseInt(options.maxChars, 10) || POV_CONTEXT_MAX_CHARS);
+  const lines = history.map(formatPOVHistoryEntry).filter(Boolean).slice(-limit);
+  return truncatePromptText(lines.join('\n\n'), maxChars);
+}
 
 /**
  * Detect provider from endpoint URL
@@ -575,6 +662,12 @@ const POV_CONVERSION_PROMPT = `You are rewriting a D&D scene as ONE character's 
 
 ## KNOWLEDGE (strict)
 - The narration knows only what this character knows. Do NOT name a person, place, item, or power they haven't learned yet — render the unknown through perception ("the cloaked stranger," "a blade of pale fire"), never by a name they couldn't have.
+- Use STORY CONTEXT and RECENT CAMPAIGN CONTEXT only to preserve continuity, identity, relationships, aliases, disguises, injuries, locations, and emotional memory. Do not add offscreen events that are not in the scene being rewritten.
+
+## IDENTITY, ALIASES, DISGUISES
+- The CHARACTER section names the single target identity behind this POV. If recent context says this character is using, wearing, masquerading as, or being addressed by another name, that public name is this same "you" in the POV, not a separate person.
+- If the scene names the target through an alias, disguise, false identity, title, or mistaken public name, convert that action or sensation into "you" and your body. Do not write as though the alias walked away from, spoke to, or existed separately from the target character.
+- Preserve deception boundaries: NPCs and other characters may still use the public name they know, while the target's inner narration can know the truth of their own identity.
 
 ## PROSE
 - Vivid, specific, felt. Avoid lifeless AI tics: reflexive "not X, but Y," "served as / a testament to," trailing "..., highlighting her resolve" summaries, rule-of-three padding, filler vocabulary (delve, tapestry, palpable, "sent shivers down her spine").
@@ -588,7 +681,7 @@ CRITICAL — CHARACTER NAMES:
 - You will receive a PARTY MEMBERS list and optionally a STORY CONTEXT section
 - Use ONLY the character names from the party list and the original scene — do NOT invent, substitute, or hallucinate names
 - If the story context mentions aliases, disguises, or secret identities, respect them: use the name each character would know
-- When in doubt, preserve the exact name used in the original scene`;
+- When in doubt, preserve the exact name used in the original scene, unless context identifies that name as the target character's alias/disguise/public identity`;
 
 /**
  * Bookkeeper Prompt — reads a finished scene + current party state and emits ONLY the
@@ -671,15 +764,23 @@ function getOpenAIApiKey(db) {
  * @param {string} sceneContent - 3rd-person narration to rewrite
  * @param {string} partyRoster - pre-built party roster string
  * @param {string} storySummary - optional story-so-far context
+ * @param {string} campaignContext - optional recent-history context
  * @returns {Promise<string|null>}
  */
-async function generateCharacterPOV(aiConfig, character, sceneContent, partyRoster, storySummary = '') {
+async function generateCharacterPOV(aiConfig, character, sceneContent, partyRoster, storySummary = '', campaignContext = '') {
   let charContext = `${character.character_name}, ${character.race} ${character.class}`;
-  if (character.appearance) charContext += `. Appearance: ${character.appearance}`;
-  if (character.backstory) charContext += `. Backstory: ${character.backstory}`;
+  if (character.background) charContext += `. Background: ${truncatePromptText(character.background, 400)}`;
+  if (character.appearance) charContext += `. Appearance: ${truncatePromptText(character.appearance, 500)}`;
+  if (character.backstory) charContext += `. Backstory: ${truncatePromptText(character.backstory, POV_CHARACTER_FIELD_MAX_CHARS)}`;
+  if (character.skills) charContext += `. Skills: ${truncatePromptText(character.skills, 500)}`;
+  if (character.spells) charContext += `. Spells: ${truncatePromptText(character.spells, 500)}`;
+  if (character.passives) charContext += `. Passives: ${truncatePromptText(character.passives, 500)}`;
+  if (character.class_features) charContext += `. Class Features: ${truncatePromptText(character.class_features, 700)}`;
+  if (character.feats) charContext += `. Feats: ${truncatePromptText(character.feats, 500)}`;
 
   let userContent = `CHARACTER: ${charContext}\n\nPARTY MEMBERS:\n${partyRoster}`;
   if (storySummary) userContent += `\n\nSTORY CONTEXT:\n${storySummary}`;
+  if (campaignContext) userContent += `\n\nRECENT CAMPAIGN CONTEXT:\n${campaignContext}`;
   userContent += `\n\nSCENE TO REWRITE:\n${sceneContent}`;
 
   const messages = [
@@ -769,6 +870,8 @@ module.exports = {
   getOpenAIApiKey,
   detectProvider,
   generateCharacterPOV,
+  buildPOVPartyRoster,
+  buildPOVCampaignContext,
   generateStateTags,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
@@ -781,5 +884,7 @@ module.exports = {
   NARRATION_CONTINUATION_MAX_TOKENS,
   POV_MAX_TOKENS,
   POV_CONTINUATION_MAX_TOKENS,
-  OPENING_SCENE_MAX_TOKENS
+  OPENING_SCENE_MAX_TOKENS,
+  POV_RECENT_CONTEXT_LIMIT,
+  POV_CONTEXT_MAX_CHARS
 };

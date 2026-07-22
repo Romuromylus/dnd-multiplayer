@@ -91,6 +91,7 @@ ${historyText}
 - Any ongoing conditions, curses, blessings affecting the party
 - Resources gained or lost (if narratively significant)
 - Reputation changes with factions
+- Identity continuity: aliases, disguises, false identities, secret identities, public names, and who knows each truth
 
 === INSTRUCTIONS ===
 1. Be SPECIFIC with names, places, and details - vague summaries lose critical context
@@ -98,6 +99,7 @@ ${historyText}
 3. Keep the most recent events in CURRENT SITUATION section
 4. Remove outdated information (completed quests, dead NPCs, resolved threads)
 5. Prioritize information the AI will need to maintain story consistency
+6. Preserve identity/alias/disguise continuity explicitly; if one person is masquerading as another name, state that relationship clearly
 
 Generate the structured summary now:`;
 
@@ -473,7 +475,12 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   // === BOOKKEEPER + POV: derive state-change tags and per-character POVs from the scene ===
   // Both passes read the same finished scene, so run them together — the bookkeeper (a small,
   // focused extraction call) adds no extra wall-clock latency beyond the POV fan-out.
-  const { generateCharacterPOV, generateStateTags } = require('./aiService');
+  const {
+    generateCharacterPOV,
+    generateStateTags,
+    buildPOVPartyRoster,
+    buildPOVCampaignContext
+  } = require('./aiService');
   let parsedPOVs = {};
   let stateTags = '';
   if (characters.length > 0) {
@@ -484,14 +491,8 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       console.log(`Converting scene to POV for ${characters.length} characters...`);
     }
 
-    // Build shared party roster so the POV converter knows all character names/identities
-    const partyRoster = characters.map(c => {
-      let entry = `- ${c.character_name}, ${c.race} ${c.class}`;
-      if (c.appearance) entry += ` — ${c.appearance}`;
-      return entry;
-    }).join('\n');
-
     const storySummary = session.story_summary || '';
+    const povCampaignContext = buildPOVCampaignContext(fullHistory);
 
     // Compact party-state line the bookkeeper needs to reason about deltas (clean names + the
     // current values it must respect: HP for damage bounds, gold for spend limits, inventory).
@@ -507,7 +508,8 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     const [tagResult, povResults] = await Promise.all([
       generateStateTags(apiConfig, cleanedResponse, bookkeeperState),
       Promise.all(characters.map(async (c) => {
-        const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary);
+        const partyRoster = buildPOVPartyRoster(characters, c);
+        const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary, povCampaignContext);
         return pov ? { name: c.character_name, pov } : null;
       }))
     ]);
