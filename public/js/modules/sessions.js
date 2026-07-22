@@ -768,27 +768,40 @@ function _diceStorageKey() {
 }
 
 /**
- * Persist dice state to sessionStorage so refreshing can't reset the roll.
+ * Persist dice state so a refresh or dropped connection can't reset the roll.
+ * Uses localStorage (not sessionStorage): a mobile browser discards a backgrounded tab's
+ * sessionStorage when the connection drops and the player switches away, which was wiping
+ * the roll. localStorage survives tab discard, offline reload, and browser restart. The
+ * saved turn number lets restore discard a roll left over from a turn that already advanced.
  */
 function _saveDiceState() {
   const key = _diceStorageKey();
   if (!key) return;
-  sessionStorage.setItem(key, JSON.stringify({ roll: _currentDiceRoll, count: _rollCount }));
+  const turn = getState('currentSession')?.current_turn ?? null;
+  localStorage.setItem(key, JSON.stringify({ roll: _currentDiceRoll, count: _rollCount, turn }));
 }
 
 /**
- * Restore dice state from sessionStorage after page load or character switch.
+ * Restore dice state from localStorage after page load or character switch.
  */
 export function restoreDiceState() {
   const key = _diceStorageKey();
   if (!key) return;
   try {
-    const saved = JSON.parse(sessionStorage.getItem(key));
+    const saved = JSON.parse(localStorage.getItem(key));
     if (!saved || !saved.roll) return;
+
+    // Discard a roll left over from a turn that has already advanced — e.g. the turn was
+    // processed while this client was offline, so it never received the clear event.
+    const currentTurn = getState('currentSession')?.current_turn ?? null;
+    if (saved.turn != null && currentTurn != null && saved.turn !== currentTurn) {
+      localStorage.removeItem(key);
+      return;
+    }
 
     // Check if the roll is stale (older than 1 hour — session likely moved on)
     if (saved.roll.timestamp && Date.now() - saved.roll.timestamp > 3600000) {
-      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
       return;
     }
 
@@ -845,7 +858,7 @@ export function restoreDiceState() {
  */
 function _clearDiceState() {
   const key = _diceStorageKey();
-  if (key) sessionStorage.removeItem(key);
+  if (key) localStorage.removeItem(key);
 }
 
 const STAT_LABELS = {
