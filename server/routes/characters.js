@@ -8,6 +8,8 @@ const { v4: uuidv4 } = require('uuid');
 const { validate, validateBody, schemas } = require('../lib/validation');
 const { getCached, setCache, invalidateCache } = require('../lib/cache');
 const { extractMarkerJson } = require('../lib/markerJson');
+const { loadPOVImageSettings, generatePOVSceneImage, saveCharacterAvatar, deleteCharacterAvatar } = require('../services/imageGenerationService');
+const { resolveStartingInventory } = require('../services/startingEquipmentService');
 const {
   ABILITY_NAMES,
   CLASS_RULES,
@@ -274,7 +276,7 @@ function createCharacterRoutes(deps) {
       skills || '', spells || '', passives || '', class_features || '', feats || '',
       appearance || '', backstory || '',
       gold || 0,
-      typeof inventory === 'string' ? inventory : JSON.stringify(inventory || []),
+      JSON.stringify(resolveStartingInventory(charClass, inventory)),
       typeof spell_slots === 'string' ? spell_slots : JSON.stringify(spell_slots || {}),
       ac || 10,
       typeof classes === 'string' ? classes : JSON.stringify(classes || { [charClass]: 1 })
@@ -798,6 +800,53 @@ function createCharacterRoutes(deps) {
       character: updatedChar,
       levelUp: { class_leveled: className, new_class_level: classLevel, hp_increase: hpIncrease, features: progression.features, spell_slots: spellSlots }
     });
+  });
+
+  /**
+   * POST /api/characters/:id/generate-avatar
+   * Generate and persist an avatar using the admin-configured image provider.
+   */
+  router.post('/:id/generate-avatar', requireUser, async (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
+    const settings = loadPOVImageSettings(db);
+    if (settings.pov_image_enabled !== 'true') return res.status(400).json({ error: 'Image generation is disabled in Admin Settings.' });
+    if (!settings.pov_image_endpoint || !settings.pov_image_api_key || !settings.pov_image_model) {
+      return res.status(400).json({ error: 'Image generation is not fully configured in Admin Settings.' });
+    }
+
+    const prompt = [
+      'Create a character avatar portrait for a Dungeons & Dragons campaign.',
+      `Character: ${character.character_name}.`,
+      `Ancestry: ${character.race || 'fantasy humanoid'}.`,
+      `Class: ${character.class || 'adventurer'}.`,
+      character.appearance ? `Appearance: ${String(character.appearance).slice(0, 1000)}.` : '',
+      character.background ? `Background: ${String(character.background).slice(0, 300)}.` : '',
+      character.backstory ? `Story clues: ${String(character.backstory).slice(0, 1000)}.` : '',
+      settings.pov_image_style_prompt ? `Art direction: ${String(settings.pov_image_style_prompt).slice(0, 1000)}.` : '',
+      'Square half-body or bust portrait, face clearly visible and centered in the upper half, expressive eyes, readable silhouette, character-focused composition, no text, no logos, no watermark, no UI.'
+    ].filter(Boolean).join(' ');
+
+    let generatedUrl = null;
+    try {
+      const image = await generatePOVSceneImage({
+        provider: settings.pov_image_provider,
+        endpoint: settings.pov_image_endpoint,
+        apiKey: settings.pov_image_api_key,
+        model: settings.pov_image_model,
+        size: '1024x1024'
+      }, prompt);
+      generatedUrl = saveCharacterAvatar(image, character.id);
+      db.prepare('UPDATE characters SET image_url = ? WHERE id = ?').run(generatedUrl, character.id);
+      if (character.image_url) deleteCharacterAvatar(character.image_url);
+      const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(character.id);
+      invalidateCache('characters:');
+      emitCharacterUpdate(updated.id, 'character_updated', updated);
+      res.json({ character: updated, image_url: generatedUrl });
+    } catch (error) {
+      if (generatedUrl) deleteCharacterAvatar(generatedUrl);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   /**

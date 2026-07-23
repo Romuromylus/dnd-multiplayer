@@ -1,0 +1,90 @@
+{
+  "Barbarian": [
+    {"name":"Greataxe","quantity":1},
+    {"name":"Handaxe","quantity":2},
+    {"name":"Explorer's Pack","quantity":1},
+    {"name":"Javelin","quantity":4}
+  ],
+  "Bard": [
+    {"name":"Rapier","quantity":1},
+    {"name":"Leather Armor","quantity":1},
+    {"name":"Dagger","quantity":1},
+    {"name":"Lute","quantity":1},
+    {"name":"Entertainer's Pack","quantity":1}
+  ],
+  "Cleric": [
+    {"name":"Mace","quantity":1},
+    {"name":"Scale Mail","quantity":1},
+    {"name":"Shield","quantity":1},
+    {"name":"Light Crossbow","quantity":1},
+    {"name":"Bolts","quantity":20},
+    {"name":"Priest's Pack","quantity":1},
+    {"name":"Holy Symbol","quantity":1}
+  ],
+  "Druid": [
+    {"name":"Leather Armor","quantity":1},
+    {"name":"Wooden Shield","quantity":1},
+    {"name":"Scimitar","quantity":1},
+    {"name":"Explorer's Pack","quantity":1},
+    {"name":"Druidic Focus","quantity":1}
+  ],
+  "Fighter": [
+    {"name":"Chain Mail","quantity":1},
+    {"name":"Shield","quantity":1},
+    {"name":"Longsword","quantity":1},
+    {"name":"Light Crossbow","quantity":1},
+    {"name":"Bolts","quantity":20},
+    {"name":"Dungeoneer's Pack","quantity":1}
+  ],
+  "Monk": [
+    {"name":"Shortsword","quantity":1},
+    {"name":"Dungeoneer's Pack","quantity":1},
+    {"name":"Dart","quantity":10}
+  ],
+  "Paladin": [
+    {"name":"Chain Mail","quantity":1},
+    {"name":"Longsword","quantity":1},
+    {"name":"Shield","quantity":1},
+    {"name":"Javelin","quantity":5},
+    {"name":"Priest's Pack","quantity":1},
+    {"name":"Holy Symbol","quantity":1}
+  ],
+  "Ranger": [
+    {"name":"Leather Armor","quantity":1},
+    {"name":"Longbow","quantity":1},
+    {"name":"Arrows","quantity":20},
+    {"name":"Shortsword","quantity":2},
+    {"name":"Dungeoneer's Pack","quantity":1}
+  ],
+  "Rogue": [
+    {"name":"Leather Armor","quantity":1},
+    {"name":"Rapier","quantity":1},
+    {"name":"Shortbow","quantity":1},
+    {"name":"Arrows","quantity":20},
+    {"name":"Dagger","quantity":2},
+    {"name":"Burglar's Pack","quantity":1},
+    {"name":"Thieves' Tools","quantity":1}
+  ],
+  "Sorcerer": [
+    {"name":"Light Crossbow","quantity":1},
+    {"name":"Bolts","quantity":20},
+    {"name":"Component Pouch","quantity":1},
+    {"name":"Dungeoneer's Pack","quantity":1},
+    {"name":"Dagger","quantity":2}
+  ],
+  "Warlock": [
+    {"name":"Leather Armor","quantity":1},
+    {"name":"Light Crossbow","quantity":1},
+    {"name":"Bolts","quantity":20},
+    {"name":"Component Pouch","quantity":1},
+    {"name":"Scholar's Pack","quantity":1},
+    {"name":"Simple Weapon","quantity":1}
+  ],
+  "Wizard": [
+    {"name":"Quarterstaff","quantity":1},
+    {"name":"Dagger","quantity":1},
+    {"name":"Component Pouch","quantity":1},
+    {"name":"Scholar's Pack","quantity":1},
+    {"name":"Spellbook","quantity":1}
+  ]
+}

@@ -51,25 +51,6 @@ const builder = {
 };
 
 // ============================================
-// Hardcoded class starting equipment
-// ============================================
-
-const CLASS_STARTING_EQUIPMENT = {
-  fighter: ['Chain Mail', 'Shield', 'Longsword', 'Handaxe', 'Handaxe'],
-  wizard: ['Quarterstaff', 'Component Pouch', 'Scholar\'s Pack'],
-  cleric: ['Mace', 'Scale Mail', 'Shield', 'Light Crossbow'],
-  rogue: ['Shortsword', 'Shortbow', 'Leather Armor', 'Thieves\' Tools'],
-  ranger: ['Longbow', 'Leather Armor', 'Shortsword', 'Shortsword', 'Explorer\'s Pack'],
-  paladin: ['Longsword', 'Shield', 'Chain Mail', 'Holy Symbol'],
-  barbarian: ['Greataxe', 'Handaxe', 'Handaxe', 'Explorer\'s Pack'],
-  bard: ['Rapier', 'Lute', 'Leather Armor', 'Entertainer\'s Pack'],
-  druid: ['Wooden Shield', 'Scimitar', 'Leather Armor', 'Explorer\'s Pack'],
-  monk: ['Shortsword', 'Dart', 'Explorer\'s Pack'],
-  sorcerer: ['Light Crossbow', 'Component Pouch', 'Dungeoneer\'s Pack'],
-  warlock: ['Light Crossbow', 'Component Pouch', 'Scholar\'s Pack', 'Leather Armor'],
-};
-
-// ============================================
 // Initialization
 // ============================================
 
@@ -921,40 +902,21 @@ function renderEquipmentSuggestion() {
   if (!container) return;
 
   if (!builder.selectedClass) {
-    container.innerHTML = '<strong>Suggested starting equipment:</strong><br>Select a class to see suggestions.';
+    container.innerHTML = '<strong>Starting equipment:</strong><br>Select a class to see its package.';
     return;
   }
 
-  const clsName = builder.selectedClass.name.toLowerCase();
-  const suggested = CLASS_STARTING_EQUIPMENT[clsName] || [];
+  const suggested = builder.selectedClass.starting_equipment || [];
 
   if (suggested.length === 0) {
-    container.innerHTML = '<strong>Suggested starting equipment:</strong><br>No default suggestions for this class.';
+    container.innerHTML = '<strong>Starting equipment:</strong><br>No default package for this class.';
     return;
   }
 
   container.innerHTML = `
-    <strong>Suggested starting equipment (${escapeHtml(builder.selectedClass.name)}):</strong><br>
-    ${suggested.map(item => escapeHtml(item)).join(', ')}
-    <br><button class="btn-tiny" id="add-suggested-equipment" style="margin-top: 6px;">Add All Suggested</button>
+    <strong>Starting equipment included automatically (${escapeHtml(builder.selectedClass.name)}):</strong><br>
+    ${suggested.map(item => `${escapeHtml(item.name)}${item.quantity > 1 ? ` x${item.quantity}` : ''}`).join(', ')}
   `;
-
-  document.getElementById('add-suggested-equipment')?.addEventListener('click', () => {
-    // Count duplicates
-    const counts = {};
-    suggested.forEach(item => { counts[item] = (counts[item] || 0) + 1; });
-    // Add to equipment, avoiding duplicates if already present
-    Object.entries(counts).forEach(([name, qty]) => {
-      const existing = builder.selectedEquipment.find(e => e.name === name);
-      if (existing) {
-        existing.quantity += qty;
-      } else {
-        builder.selectedEquipment.push({ name, quantity: qty });
-      }
-    });
-    renderSelectedEquipment();
-    showNotification('Suggested equipment added!');
-  });
 }
 
 async function onEquipmentSearch(e) {
@@ -1204,6 +1166,15 @@ export async function saveNewCharacter() {
       });
     }
 
+    if (document.getElementById('builder-generate-avatar')?.checked) {
+      showNotification('Generating avatar...');
+      try {
+        await api(`/api/characters/${character.id}/generate-avatar`, 'POST');
+      } catch (avatarError) {
+        showNotification(`Character created, but avatar generation failed: ${avatarError.message}`);
+      }
+    }
+
     loadCharacters();
     resetBuilder();
     showNotification(`${payload.character_name} created!`);
@@ -1250,6 +1221,8 @@ export function resetBuilder() {
 
   const goldInput = document.getElementById('builder-gold');
   if (goldInput) goldInput.value = '10';
+  const generateAvatar = document.getElementById('builder-generate-avatar');
+  if (generateAvatar) generateAvatar.checked = false;
 
   // Reset selects
   ['builder-race', 'builder-class', 'builder-background'].forEach(id => {

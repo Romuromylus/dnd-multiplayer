@@ -335,6 +335,9 @@ export function renderCharactersList() {
           <button class="btn-inventory" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inventory</button>
         </div>
         <div class="btn-row">
+          <button class="btn-secondary" onclick="event.stopPropagation(); generateCharacterAvatar('${c.id}', this)" title="Generate or replace avatar">Generate Avatar</button>
+        </div>
+        <div class="btn-row">
           <button class="btn-levelup" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
           <button class="btn-spells" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spell Slots</button>
         </div>
@@ -478,6 +481,25 @@ export async function deleteCharacter(id) {
     await api(`/api/characters/${id}`, 'DELETE');
   } catch (error) {
     console.error('Failed to delete character:', error);
+  }
+}
+
+export async function generateCharacterAvatar(id, button) {
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Generating...';
+  }
+  try {
+    await api(`/api/characters/${id}/generate-avatar`, 'POST');
+    await loadCharacters();
+    showNotification('Avatar generated!');
+  } catch (error) {
+    showNotification('Failed to generate avatar: ' + error.message);
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = 'Generate Avatar';
+    }
   }
 }
 

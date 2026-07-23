@@ -11,6 +11,7 @@ import { loadUsers, createUserSubmit, resetUserPassword, toggleUserAdmin, delete
 import {
   loadCharacters, renderCharactersList, updateCharacterSelect, updatePartyList,
   deleteCharacter, resetXP, resetLevel,
+  generateCharacterAvatar,
   toggleSection, expandAllSections, collapseAllSections,
   startCharacterCreation, sendCharacterMessage, resetCharacterCreation,
   loadSectionStates, attachSectionToggleListeners,
@@ -85,6 +86,7 @@ window.toggleGameDrawer = toggleGameDrawer;
 
 // Characters
 window.deleteCharacter = deleteCharacter;
+window.generateCharacterAvatar = generateCharacterAvatar;
 window.resetXP = resetXP;
 window.resetLevel = resetLevel;
 window.toggleSection = toggleSection;

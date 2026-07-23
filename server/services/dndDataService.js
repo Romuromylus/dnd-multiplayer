@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const logger = require('../lib/logger');
+const { getStartingEquipment } = require('./startingEquipmentService');
 
 const SRD_DIR = path.join(__dirname, '../data/srd');
 const STATIC_RACES = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'races.json'), 'utf-8'));
@@ -52,7 +53,7 @@ async function getRaces(db) {
 // ============================================
 
 async function getClasses(db) {
-  return STATIC_CLASSES;
+  return STATIC_CLASSES.map(cls => ({ ...cls, starting_equipment: getStartingEquipment(cls.name) }));
 }
 
 // ============================================

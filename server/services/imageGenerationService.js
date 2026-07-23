@@ -113,12 +113,13 @@ async function readImageResult(response, label) {
 async function generateOpenAI(config, prompt, reference) {
   const target = reference ? '/images/edits' : '/images/generations';
   const endpoint = buildEndpoint(config.endpoint, target);
+  const size = config.size || '1536x1024';
   if (reference) {
     const form = new FormData();
     form.append('model', config.model);
     form.append('prompt', prompt);
     form.append('n', '1');
-    form.append('size', '1536x1024');
+    form.append('size', size);
     form.append('output_format', 'png');
     form.append('image[]', new Blob([reference.buffer], { type: reference.mimeType }), `character.${reference.extension}`);
     const response = await fetchWithTimeout(endpoint, {
@@ -132,7 +133,7 @@ async function generateOpenAI(config, prompt, reference) {
   const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-    body: JSON.stringify({ model: config.model, prompt, n: 1, size: '1536x1024', output_format: 'png' })
+    body: JSON.stringify({ model: config.model, prompt, n: 1, size, output_format: 'png' })
   });
   return readImageResult(response, 'Image generation');
 }
@@ -145,7 +146,7 @@ async function generateNanoGPT(config, prompt, reference) {
     model: config.model,
     prompt,
     n: 1,
-    size: '1536x1024',
+    size: config.size || '1536x1024',
     response_format: 'b64_json'
   };
   const dataUrl = referenceDataUrl(reference);
@@ -196,7 +197,8 @@ async function generatePOVSceneImage(config, prompt, reference = null) {
     provider: normalizeProvider(config.provider),
     endpoint: String(config.endpoint || '').trim(),
     apiKey: String(config.apiKey || '').trim(),
-    model: String(config.model || '').trim()
+    model: String(config.model || '').trim(),
+    size: String(config.size || '1536x1024').trim()
   };
   if (!normalized.endpoint || !normalized.apiKey || !normalized.model) throw new Error('Image generation is not fully configured');
   if (normalized.provider === 'nanogpt') return generateNanoGPT(normalized, prompt, reference);
@@ -223,6 +225,27 @@ function savePOVSceneImage(image, sessionId) {
   const filename = `${uuidv4()}.${image.extension}`;
   fs.writeFileSync(path.join(directory, filename), image.buffer);
   return `/uploads/pov-scenes/${safeSessionId}/${filename}`;
+}
+
+function saveCharacterAvatar(image, characterId) {
+  const safeCharacterId = String(characterId || '').replace(/[^A-Za-z0-9-]/g, '');
+  if (!safeCharacterId || safeCharacterId !== String(characterId || '')) throw new Error('Invalid character ID');
+  const directory = path.join(__dirname, '../../data/uploads/characters');
+  fs.mkdirSync(directory, { recursive: true });
+  const filename = `${safeCharacterId}-${uuidv4()}.${image.extension}`;
+  fs.writeFileSync(path.join(directory, filename), image.buffer);
+  return `/uploads/characters/${filename}`;
+}
+
+function deleteCharacterAvatar(imageUrl) {
+  const match = String(imageUrl || '').match(/^\/uploads\/characters\/([A-Za-z0-9_.-]+)$/);
+  if (!match) return false;
+  try {
+    fs.unlinkSync(path.join(__dirname, '../../data/uploads/characters', match[1]));
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 function deletePOVSceneImage(imageUrl) {
@@ -441,6 +464,8 @@ module.exports = {
   generatePOVSceneImage,
   loadCharacterReference,
   savePOVSceneImage,
+  saveCharacterAvatar,
+  deleteCharacterAvatar,
   deletePOVSceneImage,
   deleteEntryPOVImages,
   deleteSessionPOVScenes,

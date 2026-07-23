@@ -269,6 +269,8 @@
                   <input type="file" id="builder-image" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden-file-input">
                   <button id="remove-image-btn" class="btn-tiny hidden" style="color: var(--danger);">Remove Image</button>
                 </div>
+                <label class="checkbox-label"><input type="checkbox" id="builder-generate-avatar"> Generate avatar after character creation</label>
+                <p class="form-hint">Uses the image provider configured by the admin. Manual upload remains available.</p>
               </div>
             </div>
 
@@ -348,15 +350,15 @@
                 <input type="number" id="builder-gold" min="0" value="10" style="max-width: 120px;">
               </div>
               <div class="form-group" style="position: relative;">
-                <label for="equipment-search">Equipment</label>
-                <input type="text" id="equipment-search" placeholder="Search equipment to add...">
+                <label for="equipment-search">Additional Equipment</label>
+                <input type="text" id="equipment-search" placeholder="Search for extra equipment...">
                 <div id="equipment-search-results" class="search-results-dropdown hidden"></div>
               </div>
               <div id="selected-equipment" class="selected-items-list">
                 <!-- JS renders: item name + quantity + remove btn -->
               </div>
               <div id="suggested-equipment" class="info-panel">
-                <strong>Suggested starting equipment:</strong>
+                <strong>Starting equipment:</strong>
                 <!-- Populated based on class -->
               </div>
             </div>
@@ -508,9 +510,9 @@
         <p id="youtube-dj-status" class="settings-note"></p>
 
         <h2>POV Scene Images</h2>
-        <p class="settings-note">Players can illustrate their current POV on demand, or the server can queue every POV automatically. The active character avatar is sent as the likeness reference, and each finished scene appears for everyone in real time.</p>
+        <p class="settings-note">Players can generate character avatars and illustrate their current POV using this image provider. POV scenes appear for everyone in real time.</p>
         <div class="form-group checkbox-group">
-          <label><input type="checkbox" id="pov-image-enabled"> Enable POV scene images</label>
+          <label><input type="checkbox" id="pov-image-enabled"> Enable avatar and POV image generation</label>
         </div>
         <div class="form-group checkbox-group">
           <label><input type="checkbox" id="pov-image-auto-enabled"> Automatically illustrate every character POV after each turn</label>
