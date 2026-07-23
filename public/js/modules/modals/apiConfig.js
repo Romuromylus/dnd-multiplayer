@@ -16,11 +16,13 @@ export function editApiConfig(id) {
   const name = card.dataset.name;
   const endpoint = card.dataset.endpoint;
   const model = card.dataset.model;
+  const reasoningEffort = card.dataset.reasoningEffort || '';
 
   const modal = document.getElementById('api-edit-modal');
   document.getElementById('edit-config-name').value = name;
   document.getElementById('edit-config-endpoint').value = endpoint;
   document.getElementById('edit-config-model').value = model;
+  document.getElementById('edit-config-reasoning-effort').value = reasoningEffort;
   document.getElementById('edit-config-key').value = '';
   document.getElementById('edit-config-key').placeholder = 'Leave blank to keep current key';
   document.getElementById('edit-config-status').textContent = '';
@@ -41,6 +43,7 @@ export async function saveApiConfigEdit() {
   const name = document.getElementById('edit-config-name').value.trim();
   const endpoint = document.getElementById('edit-config-endpoint').value.trim();
   const model = document.getElementById('edit-config-model').value.trim();
+  const reasoning_effort = document.getElementById('edit-config-reasoning-effort').value;
   const api_key = document.getElementById('edit-config-key').value.trim();
   const statusEl = document.getElementById('edit-config-status');
 
@@ -50,7 +53,7 @@ export async function saveApiConfigEdit() {
     return;
   }
 
-  const updateData = { name, endpoint, model };
+  const updateData = { name, endpoint, model, reasoning_effort };
   if (api_key) updateData.api_key = api_key;
 
   try {

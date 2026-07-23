@@ -468,6 +468,17 @@
             <label for="new-config-model">Model</label>
             <input type="text" id="new-config-model" placeholder="gpt-4">
           </div>
+          <div class="form-group">
+            <label for="new-config-reasoning-effort">Reasoning Effort</label>
+            <select id="new-config-reasoning-effort">
+              <option value="">Provider default</option>
+              <option value="minimal">Minimal</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <p class="settings-note">Used by OpenAI-compatible models that support <code>reasoning_effort</code>.</p>
+          </div>
           <div class="form-group checkbox-group">
             <label>
               <input type="checkbox" id="new-config-active"> Set as active
@@ -816,6 +827,16 @@
       <div class="form-group">
         <label for="edit-config-model">Model</label>
         <input type="text" id="edit-config-model" placeholder="gpt-4">
+      </div>
+      <div class="form-group">
+        <label for="edit-config-reasoning-effort">Reasoning Effort</label>
+        <select id="edit-config-reasoning-effort">
+          <option value="">Provider default</option>
+          <option value="minimal">Minimal</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
       </div>
       <div class="form-group">
         <label for="edit-config-key">API Key</label>

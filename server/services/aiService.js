@@ -22,6 +22,7 @@ const POV_CONTEXT_MAX_CHARS = 7000;
 const POV_CHARACTER_FIELD_MAX_CHARS = 1200;
 const POV_CORRECTION_NOTE_MAX_CHARS = 1000;
 const POV_IMAGE_PROMPT_MAX_WORDS = 180;
+const REASONING_EFFORTS = ['', 'minimal', 'low', 'medium', 'high'];
 
 const POV_IMAGE_DIRECTOR_PROMPT = `You are the visual director for a multiplayer fantasy roleplaying game. Turn exactly one completed character POV into ONE concise 16:9 illustration prompt.
 
@@ -266,6 +267,11 @@ function detectProvider(endpoint) {
   return 'openai';
 }
 
+function normalizeReasoningEffort(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return REASONING_EFFORTS.includes(normalized) ? normalized : '';
+}
+
 /**
  * Get the active API configuration from database
  * @param {Object} db - Database instance
@@ -305,6 +311,7 @@ function buildHeaders(config, provider) {
  */
 function buildRequestBody(config, messages, options, provider) {
   const { maxTokens = 4096, temperature = 0.8, stream = false } = options;
+  const reasoningEffort = normalizeReasoningEffort(config.reasoning_effort);
 
   if (provider === 'anthropic') {
     // Extract system message from messages array
@@ -335,7 +342,8 @@ function buildRequestBody(config, messages, options, provider) {
     messages: messages,
     max_tokens: maxTokens,
     temperature: temperature,
-    stream: stream
+    stream: stream,
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {})
   };
 }
 
@@ -1024,6 +1032,9 @@ module.exports = {
   testConnection,
   getOpenAIApiKey,
   detectProvider,
+  normalizeReasoningEffort,
+  REASONING_EFFORTS,
+  buildRequestBody,
   generateCharacterPOV,
   buildPOVPartyRoster,
   buildPOVCampaignContext,

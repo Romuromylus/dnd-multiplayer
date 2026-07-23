@@ -117,13 +117,15 @@ export async function loadApiConfigs() {
       <div class="api-config-card ${config.is_active ? 'active-config' : ''}" data-id="${config.id}"
            data-name="${escapeHtml(config.name)}"
            data-endpoint="${escapeHtml(config.endpoint)}"
-           data-model="${escapeHtml(config.model)}">
+           data-model="${escapeHtml(config.model)}"
+           data-reasoning-effort="${escapeHtml(config.reasoning_effort || '')}">
         <div class="config-header">
           <span class="config-name">${escapeHtml(config.name)}</span>
         </div>
         <div class="config-details">
           <span><span class="label">Endpoint:</span> <span class="value">${escapeHtml(config.endpoint)}</span></span>
           <span><span class="label">Model:</span> <span class="value">${escapeHtml(config.model)}</span></span>
+          <span><span class="label">Reasoning:</span> <span class="value">${escapeHtml(config.reasoning_effort || 'Provider default')}</span></span>
           <span><span class="label">API Key:</span> <span class="value">${escapeHtml(config.api_key)}</span></span>
         </div>
         <div class="config-actions">
@@ -144,6 +146,7 @@ export async function addApiConfig() {
   const endpoint = document.getElementById('new-config-endpoint').value.trim();
   const api_key = document.getElementById('new-config-key').value.trim();
   const model = document.getElementById('new-config-model').value.trim();
+  const reasoning_effort = document.getElementById('new-config-reasoning-effort').value;
   const is_active = document.getElementById('new-config-active').checked;
   const statusEl = document.getElementById('new-config-status');
 
@@ -154,7 +157,7 @@ export async function addApiConfig() {
   }
 
   try {
-    await api('/api/api-configs', 'POST', { name, endpoint, api_key, model, is_active });
+    await api('/api/api-configs', 'POST', { name, endpoint, api_key, model, reasoning_effort, is_active });
     statusEl.textContent = 'Configuration added successfully!';
     statusEl.className = 'success';
 
@@ -162,6 +165,7 @@ export async function addApiConfig() {
     document.getElementById('new-config-endpoint').value = '';
     document.getElementById('new-config-key').value = '';
     document.getElementById('new-config-model').value = '';
+    document.getElementById('new-config-reasoning-effort').value = '';
     document.getElementById('new-config-active').checked = false;
 
     await loadApiConfigs();
@@ -180,7 +184,8 @@ export async function testNewConfig() {
   const testData = {
     api_endpoint: document.getElementById('new-config-endpoint').value.trim(),
     api_key: document.getElementById('new-config-key').value.trim(),
-    api_model: document.getElementById('new-config-model').value.trim()
+    api_model: document.getElementById('new-config-model').value.trim(),
+    reasoning_effort: document.getElementById('new-config-reasoning-effort').value
   };
 
   if (!testData.api_endpoint || !testData.api_key || !testData.api_model) {

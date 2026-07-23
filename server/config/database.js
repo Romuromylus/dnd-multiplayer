@@ -85,6 +85,7 @@ function initializeTables() {
       endpoint TEXT NOT NULL,
       api_key TEXT NOT NULL,
       model TEXT NOT NULL,
+      reasoning_effort TEXT DEFAULT '',
       is_active INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -167,6 +168,16 @@ function initializeTables() {
  */
 function runMigrations() {
   const columns = db.prepare("PRAGMA table_info(characters)").all().map(c => c.name);
+
+  const apiConfigColumns = db.prepare("PRAGMA table_info(api_configs)").all().map(c => c.name);
+  if (!apiConfigColumns.includes('reasoning_effort')) {
+    try {
+      db.exec("ALTER TABLE api_configs ADD COLUMN reasoning_effort TEXT DEFAULT ''");
+      logger.info('Migration: Added api_configs.reasoning_effort');
+    } catch (e) {
+      logger.error('Migration failed for api_configs.reasoning_effort:', e.message);
+    }
+  }
 
   const migrations = [
     { col: 'xp', sql: 'ALTER TABLE characters ADD COLUMN xp INTEGER DEFAULT 0' },

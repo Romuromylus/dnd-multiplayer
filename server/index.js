@@ -124,7 +124,12 @@ function emitToUser(userId, event, payload) {
 function getActiveApiConfig() {
   const config = db.prepare('SELECT * FROM api_configs WHERE is_active = 1').get();
   if (!config) return null;
-  return { endpoint: config.endpoint, api_key: config.api_key, model: config.model };
+  return {
+    endpoint: config.endpoint,
+    api_key: config.api_key,
+    model: config.model,
+    reasoning_effort: config.reasoning_effort || ''
+  };
 }
 
 // ============================================

@@ -5,7 +5,7 @@
 
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { testConnection, validateEndpointSafety } = require('../services/aiService');
+const { testConnection, validateEndpointSafety, normalizeReasoningEffort } = require('../services/aiService');
 
 /**
  * Create API config router with dependencies
@@ -36,7 +36,7 @@ function createApiConfigRoutes(db, auth) {
    * Create new API configuration
    */
   router.post('/', requireAdmin, async (req, res) => {
-    const { name, endpoint, api_key, model, is_active } = req.body;
+    const { name, endpoint, api_key, model, reasoning_effort, is_active } = req.body;
 
     if (!name || !endpoint || !api_key || !model) {
       return res.status(400).json({ error: 'Missing required fields: name, endpoint, api_key, model' });
@@ -56,7 +56,9 @@ function createApiConfigRoutes(db, auth) {
       db.prepare('UPDATE api_configs SET is_active = 0').run();
     }
 
-    db.prepare('INSERT INTO api_configs (id, name, endpoint, api_key, model, is_active) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, safeEndpoint, api_key, model, is_active ? 1 : 0);
+    db.prepare('INSERT INTO api_configs (id, name, endpoint, api_key, model, reasoning_effort, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      id, name, safeEndpoint, api_key, model, normalizeReasoningEffort(reasoning_effort), is_active ? 1 : 0
+    );
 
     const config = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
     config.api_key = '****' + config.api_key.slice(-4);
@@ -69,7 +71,7 @@ function createApiConfigRoutes(db, auth) {
    */
   router.put('/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
-    const { name, endpoint, api_key, model } = req.body;
+    const { name, endpoint, api_key, model, reasoning_effort } = req.body;
 
     const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
     if (!existing) {
@@ -86,11 +88,12 @@ function createApiConfigRoutes(db, auth) {
       return res.status(400).json({ error: error.message });
     }
 
-    db.prepare('UPDATE api_configs SET name = ?, endpoint = ?, api_key = ?, model = ? WHERE id = ?').run(
+    db.prepare('UPDATE api_configs SET name = ?, endpoint = ?, api_key = ?, model = ?, reasoning_effort = ? WHERE id = ?').run(
       name || existing.name,
       safeEndpoint,
       newApiKey,
       model || existing.model,
+      reasoning_effort === undefined ? (existing.reasoning_effort || '') : normalizeReasoningEffort(reasoning_effort),
       id
     );
 
@@ -143,7 +146,7 @@ function createApiConfigRoutes(db, auth) {
    * Test API connection with provided credentials
    */
   router.post('/test-connection', requireAdmin, async (req, res) => {
-    const { api_endpoint, api_key, api_model } = req.body;
+    const { api_endpoint, api_key, api_model, reasoning_effort } = req.body;
 
     if (!api_endpoint || !api_key || !api_model) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -154,7 +157,8 @@ function createApiConfigRoutes(db, auth) {
       const result = await testConnection({
         endpoint: safeEndpoint,
         api_key: api_key,
-        model: api_model
+        model: api_model,
+        reasoning_effort: normalizeReasoningEffort(reasoning_effort)
       });
 
       if (result.success) {
@@ -183,7 +187,8 @@ function createApiConfigRoutes(db, auth) {
       const result = await testConnection({
         endpoint: config.endpoint,
         api_key: config.api_key,
-        model: config.model
+        model: config.model,
+        reasoning_effort: config.reasoning_effort || ''
       });
 
       if (result.success) {

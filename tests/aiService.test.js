@@ -18,6 +18,7 @@ const {
   POV_MAX_TOKENS,
   POV_IMAGE_DIRECTOR_PROMPT,
   POV_IMAGE_PROMPT_MAX_WORDS,
+  buildRequestBody,
 } = require('../server/services/aiService.js');
 
 describe('extractFinishReason', () => {
@@ -157,6 +158,41 @@ describe('buildContinuationMessages', () => {
     assert.equal(messages.length, 3);
     assert.deepEqual(messages.slice(0, 2), baseMessages);
     assert.deepEqual(messages[2], { role: 'assistant', content: 'partial scene' });
+  });
+});
+
+describe('reasoning effort request option', () => {
+  test('omits reasoning_effort when provider default is selected', () => {
+    const body = buildRequestBody(
+      { model: 'gpt-5', reasoning_effort: '' },
+      [{ role: 'user', content: 'hello' }],
+      { maxTokens: 100, temperature: 0.7, stream: false },
+      'openai'
+    );
+
+    assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
+  });
+
+  test('forwards a supported reasoning effort to OpenAI-compatible requests', () => {
+    const body = buildRequestBody(
+      { model: 'gpt-5', reasoning_effort: 'high' },
+      [{ role: 'user', content: 'hello' }],
+      { maxTokens: 100, temperature: 0.7, stream: false },
+      'openai'
+    );
+
+    assert.equal(body.reasoning_effort, 'high');
+  });
+
+  test('does not send OpenAI reasoning_effort to Anthropic requests', () => {
+    const body = buildRequestBody(
+      { model: 'claude-sonnet', reasoning_effort: 'high' },
+      [{ role: 'user', content: 'hello' }],
+      { maxTokens: 100, temperature: 0.7, stream: false },
+      'anthropic'
+    );
+
+    assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
   });
 });
 
