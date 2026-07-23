@@ -8,6 +8,18 @@ const { v4: uuidv4 } = require('uuid');
 const { validate, validateBody, schemas } = require('../lib/validation');
 const { getCached, setCache, invalidateCache } = require('../lib/cache');
 const { extractMarkerJson } = require('../lib/markerJson');
+const {
+  ABILITY_NAMES,
+  CLASS_RULES,
+  FULL_CASTER_SLOTS,
+  calculateMulticlassSpellcasterLevel,
+  getClassName,
+  getClassOptions,
+  getProgression,
+  getSpellSlots,
+  parseClasses,
+  slotsToState
+} = require('../services/classProgressionService');
 
 /**
  * Create character router with dependencies
@@ -615,12 +627,24 @@ function createCharacterRoutes(deps) {
     const character = loadOwnedCharacter(req, res);
     if (!character) return;
 
-    // XP thresholds for each level (D&D 5e)
-    const xpTable = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
-    const requiredXP = xpTable[character.level] || 999999;
+    const requiredXP = getRequiredXP(character.level);
     const canLevel = (character.xp || 0) >= requiredXP && character.level < 20;
+    const currentClasses = parseClasses(character.classes, character.class, character.level);
+    const currentClass = getClassName(req.query.class || character.class) || character.class;
+    const currentClassLevel = currentClasses[currentClass] || 0;
+    const nextProgression = getProgression(currentClass, Math.min(20, currentClassLevel + 1));
 
-    res.json({ canLevel, currentXP: character.xp || 0, requiredXP, level: character.level });
+    res.json({
+      canLevel,
+      currentXP: character.xp || 0,
+      requiredXP,
+      level: character.level,
+      nextLevel: character.level + 1,
+      classOptions: getClassOptions(character),
+      currentClass,
+      currentClassLevel,
+      nextProgression
+    });
   });
 
   /**
@@ -645,9 +669,13 @@ function createCharacterRoutes(deps) {
         xp = 0,
         classes = ?,
         feats = '',
-        class_features = ''
+        class_features = '',
+        class_choices = '{}',
+        class_resources = '{}'
       WHERE id = ?
     `).run(JSON.stringify(newClasses), req.params.id);
+
+    enrichCharacter(req.params.id);
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');
@@ -657,9 +685,126 @@ function createCharacterRoutes(deps) {
 
   /**
    * POST /api/characters/:id/levelup
-   * AI-assisted level up
+   * Apply a rules-validated 2014/5e level up. AI is not involved in mechanics.
    */
-  router.post('/:id/levelup', requireUser, async (req, res) => {
+  router.post('/:id/levelup', requireUser, (req, res) => {
+    const character = loadOwnedCharacter(req, res);
+    if (!character) return;
+    if (!canLevelUp(character.xp || 0, character.level)) {
+      return res.status(400).json({ error: 'Not enough XP to level up', currentXP: character.xp || 0, requiredXP: getRequiredXP(character.level) });
+    }
+
+    const choices = req.body.choices;
+    if (!choices || typeof choices !== 'object' || Array.isArray(choices)) {
+      return res.status(400).json({ error: 'Level-up choices are required. Open the structured level-up form and choose the available options.' });
+    }
+    const className = getClassName(choices.class_name || choices.className || character.class);
+    if (!className || !CLASS_RULES[className]) return res.status(400).json({ error: 'Choose a valid class.' });
+
+    const currentClasses = parseClasses(character.classes, character.class, character.level);
+    const currentClassLevel = currentClasses[className] || 0;
+    const isMulticlass = currentClassLevel === 0;
+    const classOption = getClassOptions(character).find(option => option.name === className);
+    if (isMulticlass && !classOption?.available) {
+      return res.status(400).json({ error: `Multiclassing into ${className} requires the listed ability scores.` });
+    }
+
+    const classLevel = currentClassLevel + 1;
+    const progression = getProgression(className, classLevel);
+    if (!progression) return res.status(400).json({ error: 'That class is already at level 20.' });
+
+    const abilityIncreases = choices.ability_increases || choices.abilityIncreases || {};
+    const feat = String(choices.feat || '').trim();
+    const increaseTotal = ABILITY_NAMES.reduce((sum, ability) => sum + Number(abilityIncreases[ability] || 0), 0);
+    if (progression.asi) {
+      if (feat && increaseTotal) return res.status(400).json({ error: 'Choose an Ability Score Improvement or a feat, not both.' });
+      if (!feat && increaseTotal !== 2) return res.status(400).json({ error: 'An Ability Score Improvement must total exactly +2.' });
+      if (feat && (feat.length < 2 || feat.length > 120)) return res.status(400).json({ error: 'Enter a valid feat name.' });
+      for (const ability of ABILITY_NAMES) {
+        const amount = Number(abilityIncreases[ability] || 0);
+        if (!Number.isInteger(amount) || amount < 0 || amount > 2 || Number(character[ability] || 0) + amount > 20) {
+          return res.status(400).json({ error: `${ability} cannot receive that increase.` });
+        }
+      }
+    } else if (increaseTotal || feat) {
+      return res.status(400).json({ error: 'This class level does not grant an Ability Score Improvement or feat.' });
+    }
+
+    let classChoices = {};
+    try { classChoices = JSON.parse(character.class_choices || '{}'); } catch (e) { classChoices = {}; }
+    const subclass = String(choices.subclass || '').trim();
+    const existingSubclass = classChoices[className]?.subclass;
+    const subclassWasAlreadyDue = CLASS_RULES[className].subclassLevels.some(level => level <= currentClassLevel);
+    if (progression.subclass && subclass) classChoices[className] = { ...(classChoices[className] || {}), subclass };
+    if (progression.subclass && !subclass && !existingSubclass && !subclassWasAlreadyDue) {
+      return res.status(400).json({ error: `${className} requires a subclass choice at this level.` });
+    }
+
+    const newSpells = Array.isArray(choices.spells)
+      ? choices.spells.map(spell => String(spell).trim()).filter(Boolean).slice(0, 20)
+      : String(choices.spells || '').split(/[,\n]/).map(spell => spell.trim()).filter(Boolean).slice(0, 20);
+    const existingSpells = String(character.spells || '').split(/[,\n]/).map(spell => spell.trim()).filter(Boolean);
+    const spellList = [...new Set([...existingSpells, ...newSpells])];
+    const updatedClasses = { ...currentClasses, [className]: classLevel };
+    const primaryClass = Object.entries(updatedClasses).sort((a, b) => b[1] - a[1])[0][0];
+    const conMod = Math.floor((Number(character.constitution || 10) - 10) / 2);
+    const hpIncrease = Math.max(1, Math.floor(progression.hitDie / 2) + 1 + conMod);
+    const oldMaxHP = Number(character.max_hp || character.hp || 0);
+    const newMaxHP = oldMaxHP + hpIncrease;
+    const newHP = Math.min(newMaxHP, Math.max(0, Number(character.hp || oldMaxHP)) + hpIncrease);
+    const statValues = Object.fromEntries(ABILITY_NAMES.map(ability => [ability, Number(character[ability] || 10) + Number(abilityIncreases[ability] || 0)]));
+    const casterLevel = calculateMulticlassSpellcasterLevel(updatedClasses);
+    const hasRegularCaster = casterLevel > 0;
+    const slots = hasRegularCaster ? FULL_CASTER_SLOTS[Math.min(20, casterLevel)] || [] : getSpellSlots(className, classLevel);
+    let existingSlots = {};
+    try { existingSlots = JSON.parse(character.spell_slots || '{}'); } catch (e) { existingSlots = {}; }
+    const spellSlots = slotsToState(slots, existingSlots);
+    let classResources = {};
+    try { classResources = JSON.parse(character.class_resources || '{}'); } catch (e) { classResources = {}; }
+    classResources[className] = { level: classLevel, features: progression.features, spell_slots: progression.spellSlots, resources: progression.resources, proficiency_bonus: progression.proficiencyBonus };
+    const featureEntries = progression.features.map(feature => `[${className} ${classLevel}] ${feature}`);
+    if (subclass) featureEntries.push(`[${className} choice] ${subclass}`);
+    if (feat) featureEntries.push(`[${className} ${classLevel}] Feat: ${feat}`);
+    const existingFeatures = String(character.class_features || '').trim();
+    const newFeatures = [existingFeatures, ...featureEntries].filter(Boolean).join('\n');
+    const newFeats = feat ? [String(character.feats || '').trim(), feat].filter(Boolean).join(', ') : (character.feats || '');
+    const updates = {
+      level: character.level + 1,
+      class: primaryClass,
+      classes: JSON.stringify(updatedClasses),
+      class_choices: JSON.stringify(classChoices),
+      class_resources: JSON.stringify(classResources),
+      hp: newHP,
+      max_hp: newMaxHP,
+      spells: spellList.join(', '),
+      spell_slots: JSON.stringify(spellSlots),
+      class_features: newFeatures,
+      feats: newFeats,
+      ...statValues
+    };
+    const setClauses = Object.keys(updates).map(field => `${field} = ?`).join(', ');
+    const updateResult = db.prepare(`UPDATE characters SET ${setClauses} WHERE id = ? AND level = ?`).run(...Object.values(updates), req.params.id, character.level);
+    if (updateResult.changes !== 1) {
+      return res.status(409).json({ error: 'This character was updated by another player. Refresh and review the current level.' });
+    }
+
+    const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+    invalidateCache('characters:');
+    emitCharacterUpdate(updatedChar.id, 'character_updated', updatedChar);
+    emitCharacterUpdate(updatedChar.id, 'character_leveled_up', { character: updatedChar, summary: `Level ${updatedChar.level} reached in ${className}.` });
+    return res.json({
+      message: `Level ${updatedChar.level} complete. ${className} gained ${featureEntries.join(', ') || 'no new named features'}; HP increased by ${hpIncrease}.`,
+      complete: true,
+      character: updatedChar,
+      levelUp: { class_leveled: className, new_class_level: classLevel, hp_increase: hpIncrease, features: progression.features, spell_slots: spellSlots }
+    });
+  });
+
+  /**
+   * POST /api/characters/:id/levelup-ai-legacy
+   * Retained for old clients only; the normal level-up endpoint is deterministic.
+   */
+  router.post('/:id/levelup-ai-legacy', requireUser, async (req, res) => {
     const { messages } = req.body;
     const character = loadOwnedCharacter(req, res);
     if (!character) return;

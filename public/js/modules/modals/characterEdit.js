@@ -13,6 +13,8 @@ export function openEditModal(charId) {
   const characters = getState('characters');
   setState({ modalCharacterId: charId, modalMessages: [], modalMode: 'edit' });
 
+  document.getElementById('modal-input-area')?.classList.remove('hidden');
+
   const char = characters.find(c => c.id === charId);
   document.getElementById('modal-title').textContent = `Edit ${char.character_name}`;
   document.getElementById('modal-chat-messages').innerHTML = `

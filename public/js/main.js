@@ -38,7 +38,7 @@ import {
 } from './modules/settings.js';
 import { editApiConfig, closeApiEditModal, saveApiConfigEdit } from './modules/modals/apiConfig.js';
 import { openEditModal, closeModal, sendModalMessage } from './modules/modals/characterEdit.js';
-import { levelUpCharacter } from './modules/modals/levelUp.js';
+import { levelUpCharacter, submitStructuredLevelUp } from './modules/modals/levelUp.js';
 import { openInventoryModal, closeInventoryModal, updateGold, addItemToInventory, removeItemFromInventory } from './modules/modals/inventory.js';
 import {
   openSpellSlotsModal, closeSpellSlotsModal,
@@ -162,6 +162,7 @@ window.openEditModal = openEditModal;
 window.closeModal = closeModal;
 window.sendModalMessage = sendModalMessage;
 window.levelUpCharacter = levelUpCharacter;
+window.submitStructuredLevelUp = submitStructuredLevelUp;
 window.openInventoryModal = openInventoryModal;
 window.closeInventoryModal = closeInventoryModal;
 window.updateGold = updateGold;

@@ -124,6 +124,7 @@ function formatCharacterForPOVContext(character = {}, options = {}) {
     appendCharacterField(parts, 'Passives', character.passives, 500);
     appendCharacterField(parts, 'Class Features', character.class_features, 700);
     appendCharacterField(parts, 'Feats', character.feats, 500);
+    appendCharacterField(parts, 'Rules Resources', character.class_resources, 700);
   }
 
   return `- ${parts.join(' | ')}`;

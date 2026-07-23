@@ -198,6 +198,8 @@ function runMigrations() {
     { col: 'image_url', sql: "ALTER TABLE characters ADD COLUMN image_url TEXT DEFAULT ''" },
     { col: 'inspiration_points', sql: 'ALTER TABLE characters ADD COLUMN inspiration_points INTEGER DEFAULT 4' },
     { col: 'user_id', sql: 'ALTER TABLE characters ADD COLUMN user_id TEXT' },
+    { col: 'class_choices', sql: "ALTER TABLE characters ADD COLUMN class_choices TEXT DEFAULT '{}'" },
+    { col: 'class_resources', sql: "ALTER TABLE characters ADD COLUMN class_resources TEXT DEFAULT '{}'" },
   ];
 
   for (const { col, sql } of migrations) {

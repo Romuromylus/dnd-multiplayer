@@ -326,6 +326,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     if (c.passives) info += `\n  Passives: ${c.passives}`;
     if (c.class_features) info += `\n  Class Features: ${c.class_features}`;
     if (c.feats) info += `\n  Feats: ${c.feats}`;
+    if (c.class_resources && c.class_resources !== '{}') info += `\n  Rules Resources: ${c.class_resources}`;
     return info;
   }).join('\n\n');
 
