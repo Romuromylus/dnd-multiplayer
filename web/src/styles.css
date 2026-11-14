@@ -447,6 +447,14 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
 .rchip.ready { color: var(--ok); border-color: var(--ok); }
 .rchip.writing { color: var(--accent); border-color: var(--accent); }
 .rchip.away { opacity: .55; border-style: dashed; }
+/* Before the opening: who's at the table, and the host's Begin. */
+.welcome { max-width: 560px; margin: 0 auto; }
+.welcome-party { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 14px 0; }
+.welcome-party .rchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px 3px 4px; color: var(--muted); }
+.welcome-party .rchip.on { border-color: var(--ok); color: var(--text); }
+.welcome-party .rchip.waiting { padding-left: 10px; border-style: dashed; }
+.welcome-note { text-align: left; margin: 14px 0 10px; }
+.welcome-note textarea { width: 100%; }
 .inputbar textarea.is-ready { opacity: .7; border-color: var(--ok); }
 .inputbar .prompt-row { align-items: flex-end; }
 .inputbar .prompt-row .avatar { margin-bottom: 5px; }

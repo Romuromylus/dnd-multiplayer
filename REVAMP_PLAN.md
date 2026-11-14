@@ -81,3 +81,8 @@ marks, table talk, job start/end), the gather-then-write round with auto-go and 
 and AI level-up/edits, the party Dungeon Master rules with a per-character dice tray, records with spoiler control (players
 never get the Dungeon Master's notes, thinking, lookups, the dice tray, the secrets ledger or anyone's hidden backstory),
 scene pictures and NPC portraits, the narrator voice, chapters and summaries, export.
+
+Added after the first deploy: the host's **Begin the campaign**. No round plays and no action is taken until the opening
+is written; the opening (an `<opening>` round with the host's private note) brings in every seated character without
+deciding anything for them and ends on the first hook. A character seated after the opening gets a note passage so the
+next round brings them in.

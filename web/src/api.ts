@@ -34,7 +34,7 @@ export type Seat = {
 export type ChatLine = { id: number; user_id: number; who: string; text: string; created_at: string };
 export type ArtRef = { id?: number; url: string | null; full?: string; status: string; error: string | null };
 export type Detail = {
-  story: Story; host: boolean; me: number; chapters: Chapter[]; openChapterId: number; passages: Passage[]; scenes: Record<number, any>;
+  story: Story; host: boolean; me: number; begun: boolean; chapters: Chapter[]; openChapterId: number; passages: Passage[]; scenes: Record<number, any>;
   scene: { place: string; story_time: string; weather: string; initiative: string; present: { name: string; doing?: string; condition?: string }[] };
   table: Seat[]; online: number[]; myAction: { text: string; ready: boolean } | null;
   job: { id: string; kind: string; label: string } | null;

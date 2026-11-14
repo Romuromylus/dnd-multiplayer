@@ -92,8 +92,26 @@ const esc = (t: string) => t.replace(/"/g, "'");
 export const roundMarkup = (acts: RoundAction[]) => acts.map(a => `<action by="${esc(a.name)}">\n${a.text.trim()}\n</action>`).join('\n');
 export const NO_ACTIONS = 'Nobody gave an action this round: carry the scene on to the next moment that calls on the party, deciding nothing for any of their characters.';
 
+// The campaign's first passage, written when the host begins it: the round holds this instead of players' actions. The host's
+// note (where to start, what to bring in) stays with the turn and is never shown to the players.
+export const openingRound = (note: string) => `<opening>${note.trim() ? `\n${note.trim()}\n` : ''}</opening>`;
+export const isOpening = (round: string) => round.trim().startsWith('<opening>');
+
+function openingText(story: R.Story, round: string) {
+  const note = round.trim().replace(/^<opening>|<\/opening>$/g, '').trim();
+  const party = R.party(story.id).map(p => `${p.name} (played by ${p.player})`).join(', ');
+  return `<opening>
+The campaign begins with this passage. Nobody has acted yet: it sets the stage for the whole table.
+- ${keepScenes(story.settings) ? 'Open with a scene line, then build' : 'Build'} the place, the time, the mood and the situation from the world brief${note ? ' and the host\'s note below' : ''}.
+- Bring every character at the table into the scene: ${party || '(none seated)'}. Show each one from outside, as their sheet and their player's description have them: how they look, what they carry, where they are and how they came to be here, as far as the brief and their descriptions support it. Give each a moment on the page. They don't speak, decide or react to anything new: their players do that from here on.
+- Introduce the first people the party meets and the first hook or trouble of the campaign, and end on the first moment that calls on the party to act: someone addressing them, something happening in front of them. Stop there.
+- No roll lines: stop before anything would need one.${note ? `\n\nThe host's note for the opening (the players don't see it): ${note}` : ''}
+</opening>`;
+}
+
 // This round's actions, for the writer: who acted, and who sat it out.
 export function roundText(story: R.Story, round: string, note?: string) {
+  if (isOpening(round)) return `${openingText(story, round)}${note?.trim() ? `\n<retry_note>The last attempt at this passage was thrown away. The host's note for this attempt: ${note.trim()}</retry_note>` : ''}`;
   const acted = new Set([...round.matchAll(/<action by="([^"]+)">/g)].map(m => m[1]));
   const idle = R.party(story.id).filter(p => !acted.has(esc(p.name)));
   const idleLine = idle.length ? `\n<no_action note="These characters' players sent nothing this round. They are present with the party, do nothing new and say nothing${idle.some(p => p.status === 'away') ? '; a player marked away is not at the table right now' : ''}. In a fight they take the Dodge action.">${idle.map(p => `${p.name}${p.status === 'away' ? ' (away)' : ''}`).join(', ')}</no_action>` : '';
@@ -101,8 +119,8 @@ export function roundText(story: R.Story, round: string, note?: string) {
   return note?.trim() ? `${body}\n<retry_note>The last attempt at this passage was thrown away. The host's note for this attempt: ${note.trim()}</retry_note>` : body;
 }
 
-function writeText(story: R.Story, planned: boolean) {
-  return `Now write the passage for this round${planned ? ', using your notes' : ''}, following the players' actions, the craft rules and the campaign settings.\n\n${writeReminders(story.settings)}`;
+function writeText(story: R.Story, planned: boolean, opening = false) {
+  return `Now write ${opening ? 'the campaign\'s opening passage' : 'the passage for this round'}${planned ? ', using your notes' : ''}, following ${opening ? 'the opening brief' : 'the players\' actions'}, the craft rules and the campaign settings.\n\n${writeReminders(story.settings)}`;
 }
 
 const keepScenes = (s: StorySettings) => on(s, 'scene_tracker');
@@ -276,7 +294,7 @@ export async function runTurn(job: Job, storyId: number, o: TurnOpts) {
     emit(job, 'removed', { passageId: last.id });
     const tail = R.chapterPassages(chapter.id).filter(p => p.kind !== 'note').at(-1);
     if (tail?.kind === 'direction' && tail.text === round.trim()) retriedRound = tail.id;
-  } else if (round.trim()) {
+  } else if (round.trim() && !isOpening(round)) {
     roundPassage = R.addPassage(storyId, chapter.id, 'direction', round.trim());
     emit(job, 'passage', { passage: roundPassage });
   }
@@ -294,7 +312,8 @@ export async function runTurn(job: Job, storyId: number, o: TurnOpts) {
     const dice = rollTray(R.party(storyId).map(p => ({ name: p.name })));
     updateTurn(turnId, { dice });
     const reread = lookups || story.settings.continuity_check === 'autofix';
-    const turnBlock = `${roundText(story, round, o.note)}\n\n${dice}\n\n${lookups ? planStep(story.settings) : writeText(story, false)}`;
+    const opening = isOpening(round);
+    const turnBlock = `${roundText(story, round, o.note)}\n\n${dice}\n\n${lookups ? planStep(story.settings) : writeText(story, false, opening)}`;
     const messages = chapterMessages(story, chapter, { excludeIds: exclude }, [{ type: 'text', text: pack }, { type: 'text', text: turnBlock, ...(reread ? { cache_control: { type: 'ephemeral' } } : {}) }]);
 
     let plan = '', planCalls: any[] = [], thinking = '';
@@ -311,7 +330,7 @@ export async function runTurn(job: Job, storyId: number, o: TurnOpts) {
       }
       planCalls = res.calls; thinking = res.thinking;
       if (plan) emit(job, 'plan', { text: plan });
-      const write: Block = { type: 'text', text: writeText(story, true) };
+      const write: Block = { type: 'text', text: writeText(story, true, opening) };
       if (res.pendingToolUse) {
         const tail = messages[messages.length - 1];
         messages.push({ role: 'user', content: [...tail.content.filter(b => b.type === 'tool_use').map(b => ({ type: 'tool_result', tool_use_id: b.id, content: 'Out of lookups for this round.' })), write] });

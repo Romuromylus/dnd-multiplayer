@@ -14,7 +14,10 @@ threads; a continuity check reads each passage against them; chapters close into
 - **Characters.** Pick a species, class, subclass and background (anything homebrew too), and the AI builds the full 5e
   sheet. Write with AI helps with who they are and how they look; Paint portrait makes their picture.
 - **Campaigns.** The host starts one from a world brief (written by hand, by Write with AI, or from the shared shelf of
-  saved worlds) and shares its invite code. Everyone brings a character.
+  saved worlds) and shares its invite code. Everyone brings a character. Nothing is written until the host presses
+  **Begin the campaign** (with an optional private note on where it starts): the Dungeon Master then writes the opening
+  scene with every character at the table and stops at the first moment the party has to act. Anyone who joins later is
+  brought in with the next round.
 - **Rounds.** Write what your character does, in "quotes" for speech and ((double brackets)) for out-of-character
   questions, then press Ready (or Pass). The round starts once every player marked *here* is ready, or when the host
   presses Go (a campaign setting). Players marked *away* tag along doing nothing new.

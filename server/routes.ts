@@ -9,7 +9,7 @@ import * as R from './records.ts';
 import { modeSchema, NPC, normalizeSettings, defaultSettings, SHEET, SHEET_KEYS } from './modes.ts';
 import { XP_LEVELS } from './rules_dnd.ts';
 import { closeChapter, rollupArc, summarizeChapter } from './chapters.ts';
-import { ensureSheets, flushPendingRecords, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
+import { ensureSheets, flushPendingRecords, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
 import { ART_WIDTHS, artMap, artWatchers, assetPath, deleteAsset, deleteStoryImages, enqueuePortraits, enqueueSceneArt, getAsset, imageConn, pump, redoAsset, sceneKey, sizedFile } from './art.ts';
 import { runAssist, runAvatar, runBuildSheet, runSheetEdit, type AssistKind } from './assist.ts';
 import { voiceApi } from './voice.ts';
@@ -93,10 +93,31 @@ function campaign(c: Context, opts: { host?: boolean } = {}): R.Story | Response
 const failed = (x: unknown): x is Response => x instanceof Response;
 
 function seat(storyId: number, userId: number, personaId: number | null) {
+  const before = seatOf(storyId, userId)?.persona_id ?? null;
   db.prepare(`insert into seats(story_id, user_id, persona_id, status, joined_at) values (?, ?, ?, 'active', ?)
     on conflict(story_id, user_id) do update set persona_id = excluded.persona_id`).run(storyId, userId, personaId, now());
   if (personaId) ensureSheets(storyId);
+  noteArrival(storyId, userId, before);
   broadcast(storyId, 'seats', {});
+}
+
+// A campaign has begun once the Dungeon Master has written its opening. Until then nobody plays a round: the host is
+// still gathering the table.
+const begun = (storyId: number) => !!db.prepare(`select 1 from passages where story_id = ? and kind = 'prose' limit 1`).get(storyId);
+
+// A character brought to the table after the opening isn't in the scene yet: a note tells the Dungeon Master (and the table)
+// to bring them in with the next passage.
+function noteArrival(storyId: number, userId: number, before: number | null) {
+  const s = seatOf(storyId, userId);
+  if (!s?.persona_id || s.persona_id === before || !begun(storyId)) return;
+  const m = R.party(storyId).find(p => p.userId === userId);
+  if (!m) return;
+  // Someone who stepped away and came back, or a character already in the story, is no newcomer.
+  const first = m.name.split(/\s+/)[0];
+  const named = (t: string) => t.includes(m.name) || (first.length > 2 && new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t));
+  if (R.storyProse(storyId).some(p => named(p.text))) return;
+  const p = R.addPassage(storyId, R.openChapter(storyId).id, 'note', `${m.name} (played by ${m.player}) joins the party. The next passage brings them into the scene: as their player's action describes, or simply arriving, with nothing said or decided for them.`);
+  broadcast(storyId, 'refresh', { what: 'passages', passageId: p.id });
 }
 
 api.get('/me', c => c.json({ user: A.me(c) }));
@@ -431,7 +452,7 @@ api.get('/stories/:id', c => {
   const mine = db.prepare('select text, ready from actions where story_id = ? and user_id = ?').get(story.id, A.me(c).id) as any;
   return c.json({
     story: { ...story, invite_code: story.invite_code },
-    host, me: A.me(c).id,
+    host, me: A.me(c).id, begun: begun(story.id),
     chapters: db.prepare('select id, number, title, status, summary, summary_status, arc_id, closed_at from chapters where story_id = ? order by number').all(story.id),
     openChapterId: open.id,
     passages: R.chapterPassages(open.id).map(p => passageView(p, host)), scenes: scenesFor(open.id), scene: R.getSceneState(story.id),
@@ -481,6 +502,7 @@ api.put('/stories/:id/seat', async c => {
   const s = seatOf(story.id, uid);
   if (!s) return bad(c, 'Not at this table.', 404);
   if ('persona_id' in b) {
+    const before = s.persona_id;
     const pid = b.persona_id ? Number(b.persona_id) : null;
     const p = pid ? R.getPersona(pid) : null;
     if (pid && (!p || p.user_id !== uid)) return bad(c, 'That character belongs to someone else.');
@@ -488,6 +510,7 @@ api.put('/stories/:id/seat', async c => {
     if (pid && !Object.values(parseJson<Record<string, string>>(p!.sheet, {})).some(v => v?.trim())) return bad(c, 'Build that character\'s sheet first (My characters).');
     db.prepare('update seats set persona_id = ? where story_id = ? and user_id = ?').run(pid, story.id, uid);
     if (pid) ensureSheets(story.id);
+    noteArrival(story.id, uid, before);
   }
   if (b.status === 'active' || b.status === 'away') db.prepare('update seats set status = ? where story_id = ? and user_id = ?').run(b.status, story.id, uid);
   broadcast(story.id, 'seats', {});
@@ -586,7 +609,7 @@ function startRound(storyId: number, why: string) {
 
 function maybeStartRound(storyId: number): Job | null {
   const story = R.getStory(storyId);
-  if (!story || story.archived || story.settings.auto_go !== 'all_ready' || runningJob(storyId) || !R.storyConns(story).writer) return null;
+  if (!story || story.archived || story.settings.auto_go !== 'all_ready' || runningJob(storyId) || !R.storyConns(story).writer || !begun(storyId)) return null;
   const party = R.party(storyId).filter(m => m.status === 'active');
   if (!party.length) return null;
   const ready = new Set((db.prepare('select user_id, text from actions where story_id = ? and ready = 1').all(storyId) as any[]).map(a => a.user_id));
@@ -598,6 +621,7 @@ api.put('/stories/:id/action', async c => {
   const story = campaign(c); if (failed(story)) return story;
   const s = seatOf(story.id, A.me(c).id);
   if (!s?.persona_id) return bad(c, 'Bring a character to the table first.');
+  if (!begun(story.id)) return bad(c, "The campaign hasn't begun yet: the host begins it once everyone is at the table.", 409);
   const b = await body(c);
   const text = str(b.text, 6000);
   const ready = b.ready ? 1 : 0;
@@ -611,9 +635,25 @@ api.put('/stories/:id/action', async c => {
   return c.json({ ok: true, started: !!started });
 });
 
+// The host begins the campaign once the table is gathered: the Dungeon Master writes the opening scene, bringing in every
+// character seated, and the first round follows it.
+api.post('/stories/:id/begin', async c => {
+  const story = campaign(c, { host: true }); if (failed(story)) return story;
+  if (runningJob(story.id)) return bad(c, 'The Dungeon Master is already writing.', 409);
+  if (begun(story.id)) return bad(c, 'The campaign has already begun.', 409);
+  if (!R.storyConns(story).writer) return bad(c, 'Set a Dungeon Master connection first.');
+  if (!R.party(story.id).length) return bad(c, 'Nobody has brought a character to the table yet.');
+  const note = str((await body(c)).note, 4000);
+  // Nothing anyone readied before the opening plays as a round right after it.
+  db.prepare('update actions set ready = 0 where story_id = ?').run(story.id);
+  broadcast(story.id, 'actions', { actions: actionsView(story.id) });
+  return job(c, story, 'turn', 'Opening the campaign', j => runTurn(j, story.id, { round: openingRound(note), mode: 'write' }));
+});
+
 api.post('/stories/:id/go', c => {
   const story = campaign(c, { host: true }); if (failed(story)) return story;
   if (runningJob(story.id)) return bad(c, 'The Dungeon Master is already writing.', 409);
+  if (!begun(story.id)) return bad(c, 'Begin the campaign first.', 409);
   return c.json({ jobId: startRound(story.id, 'Playing the round').id });
 });
 

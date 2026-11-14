@@ -210,7 +210,7 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
             {viewing && <div className="chapter-head"><div className="k">CHAPTER {viewing.number}</div><h2>{viewing.title || 'Untitled'}</h2>
               {viewing.summary && <details className="summary-box" style={{ textAlign: 'left' }}><summary className="mono small" style={{ cursor: 'pointer' }}>Summary</summary><div className="small" style={{ whiteSpace: 'pre-wrap' }}>{viewing.summary}</div></details>}
               <button className="btn sm" onClick={() => setViewChapter(null)}>Back to now</button></div>}
-            {!viewing && shown.length === 0 && <Welcome d={d} mySeat={mySeat} onSheet={() => setSide('party')} />}
+            {!viewing && !d.begun && !live && <Welcome d={d} mySeat={mySeat} busy={busy} onSheet={() => setSide('party')} onBegin={note => startJob(`/stories/${p.id}/begin`, { note })} />}
             <Feed passages={shown} d={d} lastProseId={viewing ? undefined : lastProse?.id} busy={busy} onAction={onAction} onUndo={undo} readOnly={!!viewing} />
             {live && !viewing && <LiveBlock live={live} host={d.host} />}
           </div>
@@ -247,16 +247,38 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
   );
 }
 
-function Welcome(p: { d: Detail; mySeat: Seat | null; onSheet: () => void }) {
-  const seated = p.d.table.filter(s => s.persona_id);
+// Before the opening: the host gathers the table, then begins; the Dungeon Master opens the scene with everyone seated.
+function Welcome(p: { d: Detail; mySeat: Seat | null; busy: boolean; onSheet: () => void; onBegin: (note: string) => Promise<boolean> }) {
+  const d = p.d;
+  const [note, setNote] = useState('');
+  const [starting, setStarting] = useState(false);
+  const seated = d.table.filter(s => s.persona_id);
+  const waiting = d.table.filter(s => !s.persona_id);
+  const begin = async () => {
+    const away = seated.filter(s => !d.online.includes(s.user_id));
+    if (away.length && !confirm(`${away.map(s => s.name).join(', ')} ${away.length > 1 ? 'aren’t' : 'isn’t'} here right now. Begin anyway? They'll still be in the opening.`)) return;
+    setStarting(true);
+    try { await p.onBegin(note); } finally { setStarting(false); }
+  };
   return (
-    <div className="empty">
-      <div className="big">{p.d.story.title}</div>
-      <p>The campaign hasn't started yet.</p>
-      {p.d.host && <p className="small">Share the invite code <b className="mono">{p.d.story.invite_code}</b> with your players (it's in the Party panel). When everyone has a character at the table, each of you writes what your character does first, and the Dungeon Master opens the scene.</p>}
-      {!p.d.host && <p className="small">Write what your character does below and press Ready. When everyone is ready, the Dungeon Master opens the scene.</p>}
+    <div className="empty welcome">
+      <div className="big">{d.story.title}</div>
+      <p>The campaign hasn't begun yet.</p>
+      <div className="welcome-party">
+        {seated.map(s => <span key={s.user_id} className={`rchip ${d.online.includes(s.user_id) ? 'on' : ''}`} title={`${s.player}${d.online.includes(s.user_id) ? ', here now' : ''}`}><Avatar src={s.avatar} name={s.name} size={20} /> {s.name} <span className="dim">({s.player})</span></span>)}
+        {waiting.map(s => <span key={s.user_id} className="rchip waiting" title="At the table without a character yet">· {s.player} <span className="dim">(no character yet)</span></span>)}
+        {!seated.length && !waiting.length && <span className="small muted">Nobody is at the table yet.</span>}
+      </div>
       {!p.mySeat?.persona_id && <p className="small"><button className="btn sm" onClick={p.onSheet}>Bring a character to the table</button></p>}
-      <p className="small muted">{seated.length ? `At the table: ${seated.map(s => `${s.name} (${s.player})`).join(', ')}.` : 'Nobody has brought a character yet.'}</p>
+      {d.host ? <>
+        <p className="small">Share the invite code <b className="mono">{d.story.invite_code}</b> with your players (the Party panel copies it, or a sign-up link). When everyone has brought a character, begin: the Dungeon Master writes the opening scene with every character at the table, and the first round follows it.</p>
+        <label className="field welcome-note">
+          <span>Where it starts (optional, only you see this)</span>
+          <textarea rows={2} value={note} maxLength={4000} onChange={e => setNote(e.target.value)} placeholder="e.g. Open in the caravan's last camp before the pass, the night the scouts don't come back." />
+        </label>
+        <p><button className="btn primary" onClick={begin} disabled={starting || p.busy || !d.conns.writer || !seated.length}>Begin the campaign</button></p>
+        <p className="small muted">{!d.conns.writer ? 'No Dungeon Master connection is set up yet: an admin adds one under Connections.' : !seated.length ? 'Someone needs to bring a character first.' : 'Anyone who joins after this is brought into the story with the next round.'}</p>
+      </> : <p className="small">Waiting for the host to begin. When they do, the Dungeon Master opens the scene with every character at the table, and then it's your move.</p>}
     </div>
   );
 }
@@ -309,7 +331,6 @@ function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live
   const players = d.table.filter(s => s.persona_id);
   const active = players.filter(s => s.status === 'active');
   const readyN = active.filter(s => s.action?.ready).length;
-  const someText = players.some(s => s.action?.ready && s.action.text.trim());
   const auto = d.story.settings.auto_go === 'all_ready';
   const me = p.mySeat;
   const name = me?.name ?? '';
@@ -324,12 +345,13 @@ function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live
           })}
           <span className="grow" />
           {p.live ? <span className="phase" style={{ margin: 0 }}><span className="spinner" />{p.live.phase || p.live.label}…</span>
-            : active.length > 0 && <span className="dim">{readyN}/{active.length} ready{auto ? '' : ' · the host starts the round'}</span>}
+            : d.begun && active.length > 0 && <span className="dim">{readyN}/{active.length} ready{auto ? '' : ' · the host starts the round'}</span>}
           {p.live && d.host && <button className="btn sm" onClick={p.onStop}>Stop</button>}
-          {!p.live && d.host && <button className="btn sm primary" onClick={p.onGo} disabled={p.busy || !d.conns.writer || (!someText && d.passages.length === 0)} title={auto ? 'Start the round now with whoever is ready' : 'Start the round'}>Go</button>}
+          {!p.live && d.host && d.begun && <button className="btn sm primary" onClick={p.onGo} disabled={p.busy || !d.conns.writer} title={auto ? 'Start the round now with whoever is ready' : 'Start the round'}>Go</button>}
         </div>
         {!d.conns.writer && <div className="small dim" style={{ marginBottom: 6 }}>No Dungeon Master connection is set up yet: an admin adds one under Connections.</div>}
-        {!me?.persona_id ? <div className="small muted">You're at the table without a character. Open the Party panel to bring one (or just watch and talk).</div> : (
+        {!d.begun ? <div className="small muted">{p.live ? 'The Dungeon Master is opening the campaign.' : 'The first round comes after the opening scene.'}</div>
+          : !me?.persona_id ? <div className="small muted">You're at the table without a character. Open the Party panel to bring one (or just watch and talk).</div> : (
           <div className="prompt-row">
             <Avatar src={me.avatar} name={name} size={32} />
             <textarea ref={box} rows={1} value={text} onChange={e => onType(e.target.value)} onKeyDown={onKey} readOnly={ready}
