@@ -1,7 +1,9 @@
 node_modules
-npm-debug.log
+web/dist
+.localdata
+.localdata.log
+data
 .git
-.gitignore
+*.db
 .env
-*.md
-data/
+ops

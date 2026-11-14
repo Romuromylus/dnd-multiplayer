@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <polygon points="32,3 58,18 58,46 32,61 6,46 6,18" fill="#1c1f27" stroke="#e8b45a" stroke-width="3" stroke-linejoin="round"/>
+  <polygon points="32,14 48,42 16,42" fill="none" stroke="#e8b45a" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M32 3 L32 14 M58 18 L48 42 M6 18 L16 42 M32 61 L16 42 M32 61 L48 42 M58 46 L48 42 M6 46 L16 42 M6 18 L32 14 L58 18" stroke="#e8b45a" stroke-width="1.6" fill="none" opacity=".6"/>
+  <text x="32" y="37" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="13" fill="#e8b45a">20</text>
+</svg>
