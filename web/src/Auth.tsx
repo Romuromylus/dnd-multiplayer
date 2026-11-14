@@ -25,6 +25,9 @@ export function AuthView(p: { setup: boolean; onIn: (u: User, joined?: number | 
           <button type="button" className={mode === 'in' ? 'on' : ''} onClick={() => setMode('in')}>Sign in</button>
           <button type="button" className={mode === 'up' ? 'on' : ''} onClick={() => setMode('up')}>I have an invite code</button>
         </div>}
+        {invite && !p.setup && <p className="small muted" style={{ textAlign: 'center', margin: '0 0 10px' }}>
+          {mode === 'up' ? 'Already have an account? Sign in instead: you’ll join this campaign either way.' : 'You’ll join the campaign from your invite once you sign in.'}
+        </p>}
         <Field label="Username"><input type="text" value={f.username} onChange={e => set('username', e.target.value)} autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} autoFocus /></Field>
         <Field label="Password" hint={mode === 'up' ? 'At least 8 characters.' : undefined}><input type="password" value={f.password} onChange={e => set('password', e.target.value)} autoComplete={mode === 'up' ? 'new-password' : 'current-password'} /></Field>
         {mode === 'up' && <Field label="Display name" hint="What the others at the table see. Optional."><input type="text" value={f.display_name} onChange={e => set('display_name', e.target.value)} /></Field>}

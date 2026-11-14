@@ -406,7 +406,8 @@ api.post('/join', async c => {
   if (!story) return bad(c, 'No campaign has that invite code.', 404);
   const pid = builtPersona(c, b.persona_id);
   const had = seatOf(story.id, A.me(c).id);
-  seat(story.id, A.me(c).id, pid ?? had?.persona_id ?? null);
+  // From an invite link the character is only a default: someone already playing at this table keeps theirs.
+  seat(story.id, A.me(c).id, b.keep_current && had?.persona_id ? had.persona_id : pid ?? had?.persona_id ?? null);
   return c.json({ id: story.id });
 });
 

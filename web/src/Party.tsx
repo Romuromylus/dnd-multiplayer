@@ -68,7 +68,7 @@ export function PartyPanel(p: { d: Detail; home: Home; reload: () => Promise<any
 
       <div className="rec">
         <div className="h"><b>Invite</b><span className="grow" /><span className="mono invite">{d.story.invite_code}</span></div>
-        <div className="f small">New players sign up with this code and land at this table. Players who already have an account join with it from the home page.</div>
+        <div className="f small">The link brings anyone to this table: new players sign up with it, and players with an account just sign in. The code works from the home page too.</div>
         <div className="row wrap" style={{ marginTop: 8 }}>
           <button className="btn sm" onClick={() => copy(d.story.invite_code, 'Code')}>Copy code</button>
           <button className="btn sm" onClick={() => copy(link, 'Link')}>Copy link</button>
