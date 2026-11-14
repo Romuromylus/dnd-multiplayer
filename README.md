@@ -11,8 +11,10 @@ threads; a continuity check reads each passage against them; chapters close into
 
 - **Accounts.** The first account made is the admin. After that, a player signs up with a campaign's invite code (or the
   admin makes an account under Players).
-- **Characters.** Pick a species, class, subclass and background (anything homebrew too), and the AI builds the full 5e
-  sheet. Write with AI helps with who they are and how they look; Paint portrait makes their picture.
+- **Characters.** Talk it through with the Dungeon Master in a chat (in any language): it asks, explains the rules in
+  plain words, suggests, and fills in the species, class, background, ability scores, personality and look as you go,
+  with a real 🎲 roll for the scores. Or fill in the boxes yourself (anything homebrew too). Either way the AI then builds
+  the full 5e sheet. Paint portrait makes their picture.
 - **Campaigns.** The host starts one from a world brief (written by hand, by Write with AI, or from the shared shelf of
   saved worlds) and shares its invite code. Everyone brings a character. Nothing is written until the host presses
   **Begin the campaign** (with an optional private note on where it starts): the Dungeon Master then writes the opening

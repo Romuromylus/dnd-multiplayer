@@ -210,7 +210,7 @@ export const sheetOf = (p: Persona): Record<string, string> => { try { return JS
 // A sheet is built once it has more than the look (which the character's own Look field also fills).
 export const sheetBuilt = (s: Record<string, string>) => Object.entries(s).some(([k, v]) => k !== 'look' && k !== 'look_now' && String(v ?? '').trim());
 export const hasSheet = (p: Persona) => sheetBuilt(sheetOf(p));
-export const buildOf = (p: Persona | null): Record<string, string> => { try { return JSON.parse(p?.build || '{}'); } catch { return {}; } };
+export const buildOf = (p: Persona | null): Record<string, any> => { try { return JSON.parse(p?.build || '{}'); } catch { return {}; } };
 // "12/30" → [12, 30]
 export function hpOf(hp: string | undefined): [number, number] | null {
   const m = String(hp ?? '').match(/(-?\d+)\s*\/\s*(\d+)/);

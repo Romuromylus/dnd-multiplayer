@@ -2,14 +2,14 @@
 // built from them, a level-up, a change to a sheet, and a portrait. Each runs as a job of its own, so a long reply streams and
 // a slow one isn't cut off on the way.
 import { emit, type Job } from './jobs.ts';
-import { callModel } from './llm.ts';
+import { callModel, type Msg } from './llm.ts';
 import { callJson, withRoom } from './ask.ts';
 import * as R from './records.ts';
 import { BANNED_NAMES } from './rules.ts';
 import { sheetBuildSystem, sheetEditSystem } from './rules_dnd.ts';
 import { SHEET_KEYS } from './modes.ts';
 import { generateImage, imageConn, styleOf } from './art.ts';
-import { clip } from './util.ts';
+import { clip, extractJson } from './util.ts';
 
 export type AssistKind = 'world' | 'character' | 'look';
 // given: what the form already holds apart from this text (the character's name, species, class...).
@@ -97,6 +97,126 @@ export async function runAssist(job: Job, a: AssistAsk) {
   const text = r.text.replace(/\r/g, '').trim();
   if (!text) throw new Error('Nothing came back. Try again.');
   emit(job, 'assist', { text });
+}
+
+// ---------------------------------------------------------------- making a character by talking it through
+
+// A line of the chat. A Dungeon Master line keeps what it changed on the form, so the next turn sees its own pattern.
+export type ChatLine = { role: 'dm' | 'me'; text: string; draft?: Record<string, any> };
+export const DRAFT_KEYS = ['name', 'species', 'cls', 'subclass', 'background', 'level', 'scores', 'notes', 'description', 'look'] as const;
+const DRAFT_MAX: Record<string, number> = { description: 6000, notes: 3000, look: 2000 };
+
+export function characterChatSystem(): string {
+  return `You are the Dungeon Master of a D&D 5th Edition campaign played in text, at session zero: in a chat with one player, you help them make their character. Many players are new to D&D. Make it easy and fun: find the person they want to play, and let the rules serve that.
+
+<how_you_talk>
+- Keep replies short: two to five sentences, or a short list of options with one line each. Ask one thing at a time.
+- Follow the player's lead and build on their ideas. When they have none yet, ask what kind of hero they would enjoy (a character from a show, a game or a book they like works too), then offer two or three options that fit, each with a line on how it plays.
+- Explain a game term in a few plain words the first time it matters ("Background: what they did before adventuring; it gives two skills and some gear"). Leave out rules that don't matter yet.
+- Talk in the language the player writes in, the way they write it (Tagalog, Taglish, English...). Game terms stay in English.
+- When the player says "you choose" or "surprise me", choose, say what you chose in a line each, and ask if it sounds good.
+- Homebrew is welcome: a species, feature, spell or item that isn't in the books goes in, made to work by the rules. If it is much stronger than what a character of that level has, say so in a line and offer a fair version; the player picks.
+- You can't roll dice here. The player has a 🎲 button under the chat that rolls their ability scores once (4d6, drop the lowest, six times). If they want to roll, point them to it; when the numbers come, help place them.
+- Plain text: no headings, no tables, no bold. A short list with "- " is fine.
+- Don't drag it out: six to ten exchanges is plenty. Once the species, class, background and a sketch of the person are settled, offer to fill in the rest yourself.
+</how_you_talk>
+
+<what_to_settle>
+In whatever order the talk takes:
+- species, class, background, and the starting level (1 unless the player says otherwise; their host may have told them what level the campaign starts at)
+- the subclass, if the starting level has one (if not, say at what level it comes)
+- ability scores: the standard array (15, 14, 13, 12, 10, 8), point buy (27 points), or rolled with the 🎲 button; and where the high ones go for the class
+- anything they want on the sheet: spells, feats, gear, a homebrew feature
+- the person: personality, how they talk, where they come from, what they want, one thing they would never do
+- how they look
+- a name: offer three that fit if they have none
+You don't build the sheet yourself. The player presses Build the sheet under the chat, and the full sheet (HP, AC, skills, attacks, spells, gear) is made from what you noted. They can change it after.
+</what_to_settle>
+
+<the_form>
+Beside the chat is a form with what is settled so far. The player's message starts with <form_now>: the form as it is now, with any change they made by hand. Treat it as true.
+End every reply with a draft block that updates the form, on its own line after what you say:
+<draft>{"species":"Tiefling","cls":"Warlock"}</draft>
+- Only the fields that change this turn, each written whole: it replaces what the form had. {} when nothing changes.
+- Fields: name, species, cls (the class), subclass, background, level (a number), scores, notes, description, look, ready.
+- Note what the player chose or agreed to, and what you chose when they asked you to. An option you only offered is not settled.
+- scores: how they are made and where they go, before species bonuses: "standard array: STR 15, CON 14, WIS 13, CHA 12, DEX 10, INT 8", or "rolled 16, 14, 13, 11, 10, 7: DEX 16, CON 14...".
+- notes: the player's wishes for the sheet (spells, feats, gear, homebrew), one per line, with what a homebrew one does. Only what goes on the sheet: who the person is (gender, age, history, personality) goes in description.
+- description: labelled sections in this order: Personality, Speech (with one short line in their voice), Background, Goals. Third person, present tense, 120 to 300 words. Write it once you know enough about the person, keeping everything the player said, and write it whole again when something about the person changes. Nothing about their looks.
+- look: one paragraph of what they look like and wear (age, build, skin, hair, eyes, face, marks, clothes, gear), 50 to 120 words, once the player has said how they look or asked you to decide.
+- Every field is in English, even while you talk in another language: the Dungeon Master and the sheet read them in English.
+- ready: true once a class and enough of the rest are settled to build a sheet the player would like. In the same reply, tell them in a line that they can press Build the sheet, or keep talking.
+</the_form>`;
+}
+
+export function cleanDraft(j: any): Record<string, any> {
+  const out: Record<string, any> = {};
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return out;
+  for (const k of DRAFT_KEYS) {
+    const v = j[k];
+    if (v == null || typeof v === 'object') continue;
+    out[k] = k === 'level' ? Math.max(1, Math.min(20, Math.round(Number(v) || 1))) : clip(String(v).replace(/\r/g, '').trim(), DRAFT_MAX[k] ?? 300);
+  }
+  if (j.ready === true) out.ready = true;
+  return out;
+}
+
+// What can be shown of a reply still coming in: everything before its draft block, holding back what may be the block starting.
+export function visibleReply(acc: string): string {
+  const i = acc.indexOf('<draft');
+  if (i >= 0) return acc.slice(0, i);
+  for (let n = Math.min(acc.length, 6); n > 0; n--) if ('<draft'.startsWith(acc.slice(-n))) return acc.slice(0, -n);
+  return acc;
+}
+
+export function splitReply(text: string): { reply: string; draft: Record<string, any> } {
+  const i = text.indexOf('<draft');
+  const reply = (i >= 0 ? text.slice(0, i) : text).replace(/\r/g, '').trim();
+  if (i < 0) return { reply, draft: {} };
+  const inner = text.slice(i).replace(/^<draft[^>]*>/, '').replace(/<\/draft>[\s\S]*$/, '');
+  return { reply, draft: cleanDraft(extractJson(inner)) };
+}
+
+const formNow = (d: Record<string, any>, built: boolean) => DRAFT_KEYS.map(k => `${k}: ${String(d?.[k] ?? '').trim() || '(not yet)'}`).join('\n')
+  + (built ? '\nsheet: built already. A change here reaches it only when the player presses Rebuild the sheet, which makes it anew; a small change can also be made on the sheet itself with Change with AI.' : '');
+
+// The chat as the model reads it: player lines and its own, alternating, starting and ending with the player.
+export function chatMessages(lines: ChatLine[], draft: Record<string, any>, built = false): Msg[] {
+  const out: Msg[] = [];
+  for (const l of lines.slice(-40)) {
+    const role = l.role === 'me' ? 'user' : 'assistant';
+    if (!out.length && role === 'assistant') continue;
+    const text = role === 'assistant' ? `${l.text.trim()}\n<draft>${JSON.stringify(cleanDraft(l.draft))}</draft>` : l.text.trim();
+    const last = out[out.length - 1];
+    if (last?.role === role) last.content[0].text += `\n\n${text}`;
+    else out.push({ role, content: [{ type: 'text', text }] });
+  }
+  if (out[out.length - 1]?.role !== 'user') throw new Error('Say something first.');
+  const last = out[out.length - 1].content[0];
+  last.text = `<form_now note="The form as it stands, with any change the player made by hand">\n${formNow(draft, built)}\n</form_now>\n\n${last.text}\n\n(Reply, then end with the <draft> block.)`;
+  return out;
+}
+
+export async function runCharacterChat(job: Job, o: { lines: ChatLine[]; draft: Record<string, any>; built?: boolean }) {
+  const conn = R.defaultConn('records') ?? R.defaultConn('writer');
+  if (!conn) throw new Error('No connection set up yet.');
+  const messages = chatMessages(o.lines, o.draft, !!o.built);
+  // A chat wants a quick answer: little thinking, unless the connection has it off.
+  const level = conn.thinking_level === 'off' ? 'off' : 'low';
+  emit(job, 'phase', { phase: 'write', label: 'thinking' });
+  let acc = '', shown = 0, filling = false;
+  const r = await callModel({
+    conn, system: [{ text: characterChatSystem() }], messages, thinking: level, maxTokens: withRoom(conn, 3000, level), signal: job.abort.signal,
+    onText: d => {
+      acc += d;
+      const v = visibleReply(acc);
+      if (v.length > shown) { emit(job, 'text', { delta: v.slice(shown) }); shown = v.length; }
+      if (!filling && acc.includes('<draft')) { filling = true; emit(job, 'phase', { phase: 'write', label: 'filling in the form' }); }
+    },
+  });
+  const { reply, draft } = splitReply(r.text);
+  if (!reply) throw new Error('Nothing came back. Try again.');
+  emit(job, 'assist', { reply, draft });
 }
 
 // ---------------------------------------------------------------- character sheets

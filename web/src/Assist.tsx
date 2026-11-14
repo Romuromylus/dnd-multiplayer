@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, followJob, type World } from './api';
 import { errToast, Field, Modal, toast, useAsync } from './ui';
 
-type Done = { text?: string; image?: string; sheet?: Record<string, string>; fields?: Record<string, string>; summary?: string };
+type Done = { text?: string; image?: string; sheet?: Record<string, string>; fields?: Record<string, string>; summary?: string; reply?: string; draft?: Record<string, any> };
 
 // One helper job at a time: what is written streams in, and its result arrives once at the end.
 export function useAssistJob() {

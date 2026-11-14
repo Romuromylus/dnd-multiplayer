@@ -11,7 +11,7 @@ import { XP_LEVELS } from './rules_dnd.ts';
 import { closeChapter, rollupArc, summarizeChapter } from './chapters.ts';
 import { ensureSheets, flushPendingRecords, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
 import { ART_WIDTHS, artMap, artWatchers, assetPath, deleteAsset, deleteStoryImages, enqueuePortraits, enqueueSceneArt, getAsset, imageConn, pump, redoAsset, sceneKey, sizedFile } from './art.ts';
-import { runAssist, runAvatar, runBuildSheet, runSheetEdit, type AssistKind } from './assist.ts';
+import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
 import { voiceApi } from './voice.ts';
 import { broadcast, liveResponse, online } from './live.ts';
 import * as A from './auth.ts';
@@ -280,10 +280,18 @@ const myPersona = (c: Context, id: number) => {
   return p && (p.user_id === A.me(c).id || isAdmin(c)) ? p : null;
 };
 const BUILD_KEYS = ['species', 'cls', 'subclass', 'background', 'level', 'scoresHow', 'scores', 'notes'] as const;
+// The talk with the Dungeon Master that made the character, kept so it can go on later (the latest part, if it runs long).
+function chatLines(v: unknown): ChatLine[] {
+  if (!Array.isArray(v)) return [];
+  const lines: ChatLine[] = v.filter(l => l && typeof l === 'object' && typeof l.text === 'string' && l.text.trim()).slice(-80)
+    .map(l => ({ role: l.role === 'dm' ? 'dm' : 'me', text: str(l.text, 6000), ...(l.role === 'dm' && l.draft ? { draft: cleanDraft(l.draft) } : {}) }));
+  while (lines.length > 1 && JSON.stringify(lines).length > 200000) lines.shift();
+  return lines;
+}
 function personaFromBody(b: any, ex: Partial<R.Persona> = {}) {
   const sheet = b.sheet && typeof b.sheet === 'object' ? JSON.stringify(Object.fromEntries(SHEET_KEYS.map(k => [k, str(b.sheet[k], 4000)]))) : ex.sheet ?? '{}';
   // The build choices, kept as typed, so a character saved before the sheet is built comes back as it was left.
-  const build = b.build && typeof b.build === 'object' ? JSON.stringify(Object.fromEntries(BUILD_KEYS.map(k => [k, str(b.build[k], k === 'notes' ? 4000 : 300)]))) : ex.build ?? '{}';
+  const build = b.build && typeof b.build === 'object' ? JSON.stringify({ ...Object.fromEntries(BUILD_KEYS.map(k => [k, str(b.build[k], k === 'notes' ? 4000 : 300)])), chat: chatLines(b.build.chat) }) : ex.build ?? '{}';
   return { name: str(b.name ?? ex.name, 80).trim(), description: str(b.description ?? ex.description, 12000), look: str(b.look ?? ex.look, 3000), sheet, build, avatar: 'avatar' in b ? (b.avatar ? str(b.avatar, 400000) : null) : ex.avatar ?? null };
 }
 api.post('/personas', async c => {
@@ -357,6 +365,13 @@ api.post('/assist/sheet', async c => {
     name: str(b.name, 80), species: str(b.species, 120), cls: str(b.cls, 120), subclass: str(b.subclass, 120), background: str(b.background, 120),
     level: Math.round(Number(b.level) || 1), scores: str(b.scores, 300), notes: str(b.notes, 3000), description: str(b.description, 6000), look: str(b.look, 2000),
   }));
+});
+// Making a character by talking it through: the Dungeon Master answers, and says what to change on the form.
+api.post('/assist/character-chat', async c => {
+  const b = await body(c);
+  const lines = chatLines(b.lines);
+  if (lines[lines.length - 1]?.role !== 'me') return bad(c, 'Say something first.');
+  return helperJob(c, 'assist', 'Talking', j => runCharacterChat(j, { lines, draft: cleanDraft(b.draft), built: b.built === true }));
 });
 api.post('/assist/portrait', async c => {
   const b = await body(c);

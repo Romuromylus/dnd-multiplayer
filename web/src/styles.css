@@ -506,3 +506,24 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
   .header .icon-btn { width: 32px; }
   .round { padding: 8px 10px; }
 }
+
+/* Making a character by talking it through with the Dungeon Master. */
+.bchat { display: flex; flex-direction: column; gap: 8px; }
+.bchat-log { display: flex; flex-direction: column; gap: 8px; max-height: min(50dvh, 460px); min-height: 160px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overscroll-behavior: contain; }
+.bmsg { max-width: 88%; padding: 7px 11px; border-radius: 12px; font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bmsg.dm { align-self: flex-start; background: var(--panel2); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bmsg.me { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--line2); border-bottom-right-radius: 4px; }
+.bmsg .who { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
+.bchat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bchat-in { display: flex; gap: 8px; align-items: flex-end; }
+.bchat-in textarea { flex: 1; min-width: 0; min-height: 0; resize: vertical; }
+.sofar { margin: 0; }
+.sofar-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin-top: 6px; }
+.sofar-grid .k { color: var(--muted); font-size: 12.5px; }
+.sofar-grid .v { overflow-wrap: anywhere; white-space: pre-wrap; }
+.sofar-grid details.v { white-space: normal; }
+.sofar-grid summary { cursor: pointer; color: var(--text); }
+.sofar-grid .pre { white-space: pre-wrap; margin-top: 4px; color: var(--muted); }
+.ai-box.go { border-color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 480px) { .bmsg { max-width: 94%; } .sofar-grid { grid-template-columns: 1fr; gap: 0; } .sofar-grid .k { margin-top: 5px; } }
+.bmsg .filling { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); white-space: normal; }

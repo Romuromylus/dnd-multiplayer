@@ -1,8 +1,10 @@
 // A player's character in their own library: who they are, how they look, the 5e sheet (built by the AI from a few choices,
 // then theirs to change), and a portrait. A campaign takes a copy of the sheet when the character sits down at its table.
-import { useMemo, useRef, useState } from 'react';
+// The choices can be talked through with the Dungeon Master, who fills the form in as the talk goes, or typed into the boxes.
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { api, buildOf, sheetBuilt, sheetOf, type Home, type Persona } from './api';
 import { AiWrite, PortraitMaker, shrinkImage, useAssistJob } from './Assist';
+import { BuildChat, type ChatLine } from './BuildChat';
 import { Avatar, SheetAi, SheetForm, SheetView } from './Sheet';
 import { errToast, Field, Modal, Seg, toast, useAsync } from './ui';
 
@@ -33,6 +35,9 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
     background: saved.background ?? initial.background ?? '', level: Number(saved.level) || Number(initial.level) || 1,
     scoresHow: SCORES.some(s => s.value === saved.scoresHow) ? saved.scoresHow : SCORES[0].value, scores: saved.scores ?? '', notes: saved.notes ?? '',
   });
+  const [chat, setChat] = useState<ChatLine[]>(() => Array.isArray(saved.chat) ? saved.chat : []);
+  // A new character, or one still unbuilt, starts in the talk; a built one opens on the boxes.
+  const [how, setHow] = useState<'talk' | 'boxes'>(() => p.home.hasWriter && (!ex || chat.length > 0 || !sheetBuilt(initial)) ? 'talk' : 'boxes');
   const job = useAssistJob();
   const { busy, run } = useAsync();
   const srd = p.home.srd;
@@ -40,8 +45,24 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
   const ready = p.home.hasWriter;
   const given = [name && `Name: ${name}`, b.species && `Species: ${b.species}`, b.cls && `Class: ${b.cls}${b.subclass ? ` (${b.subclass})` : ''}`, b.background && `Background: ${b.background}`, sheet.class && `Sheet: ${sheet.class}`].filter(Boolean).join('\n');
 
+  // What the Dungeon Master sees of the form during the talk, and what it changes on it.
+  const scoresNow = b.scoresHow === 'own' ? b.scores : b.scoresHow;
+  const draft = () => ({ name, species: b.species, cls: b.cls, subclass: b.subclass, background: b.background, level: b.level, scores: scoresNow, notes: b.notes, description, look });
+  const onDraft = (d: Record<string, any>) => {
+    const pick = (k: string) => typeof d[k] === 'string' ? { [k]: d[k] } : {};
+    if (typeof d.name === 'string' && d.name.trim()) setName(d.name.trim());
+    if (typeof d.description === 'string') setDescription(d.description);
+    if (typeof d.look === 'string') setLook(d.look);
+    setB(x => ({
+      ...x, ...pick('species'), ...pick('cls'), ...pick('subclass'), ...pick('background'), ...pick('notes'),
+      ...(d.level != null ? { level: Math.max(1, Math.min(20, Number(d.level) || 1)) } : {}),
+      ...(typeof d.scores === 'string' ? (SCORES.some(s => s.value === d.scores) ? { scoresHow: d.scores } : { scoresHow: 'own', scores: d.scores }) : {}),
+    }));
+  };
+  const aiReady = chat.some(l => l.draft?.ready);
+
   // Closing with unsaved changes asks first (a sheet the AI just built is only kept once saved).
-  const current = () => JSON.stringify({ name, description, look, avatar, sheet, b });
+  const current = () => JSON.stringify({ name, description, look, avatar, sheet, b, chat: chat.length });
   const clean = useRef<string | null>(null);
   if (clean.current === null) clean.current = current();
   const close = () => {
@@ -53,7 +74,7 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
   const save = (close = true) => run(async () => {
     if (!name.trim()) throw new Error('Give the character a name.');
     // The look goes onto the sheet only once there is a sheet: a look on its own would pass for a built one.
-    const body = { name, description, look, avatar, build: { ...b, level: String(b.level) }, sheet: built ? { ...sheet, look: sheet.look || look } : sheet };
+    const body = { name, description, look, avatar, build: { ...b, level: String(b.level), chat }, sheet: built ? { ...sheet, look: sheet.look || look } : sheet };
     const r = await api<{ persona: Persona }>(id ? `/personas/${id}` : '/personas', { method: id ? 'PUT' : 'POST', body });
     setId(r.persona.id);
     clean.current = current();
@@ -101,7 +122,28 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
         <button className={tab === 'sheet' ? 'on' : ''} onClick={() => setTab('sheet')}>Character sheet{built ? '' : ' (not built)'}</button>
       </div>
 
-      {tab === 'build' && <>
+      {tab === 'build' && ready && <div className="row wrap">
+        <Seg value={how} options={[{ value: 'talk', label: 'Talk it through' }, { value: 'boxes', label: 'Fill in the boxes' }]} onChange={v => setHow(v as 'talk' | 'boxes')} />
+        <span className="muted small">{how === 'talk' ? 'The Dungeon Master asks, explains and fills in the form as you go.' : 'Every choice in its own box.'}</span>
+      </div>}
+
+      {tab === 'build' && how === 'talk' && ready && <>
+        <BuildChat lines={chat} setLines={setChat} draft={draft} onDraft={onDraft} ready={ready} built={built} />
+        <div className="rec sofar">
+          <div className="h"><b>So far</b><span className="grow" /><button type="button" className="btn sm ghost" onClick={() => setHow('boxes')}>Change in the boxes</button></div>
+          <div className="sofar-grid">
+            {([['Species', b.species], ['Class', b.cls && `${b.cls}${b.subclass ? ` (${b.subclass})` : ''}`], ['Background', b.background], ['Level', String(b.level)],
+              ['Ability scores', b.scoresHow === 'own' ? b.scores : SCORES.find(s => s.value === b.scoresHow)?.label ?? b.scoresHow], ['Wishes', b.notes]] as [string, string][])
+              .map(([k, v]) => <Fragment key={k}><span className="k">{k}</span><span className={`v ${v ? '' : 'dim'}`}>{v || 'not yet'}</span></Fragment>)}
+            {([['Who they are', description], ['How they look', look]] as [string, string][])
+              .map(([k, v]) => <Fragment key={k}><span className="k">{k}</span>{v.trim()
+                ? <details className="v"><summary>{v.replace(/\s+/g, ' ').slice(0, 64).trim()}…</summary><div className="pre">{v}</div></details>
+                : <span className="v dim">not yet</span>}</Fragment>)}
+          </div>
+        </div>
+      </>}
+
+      {tab === 'build' && (how === 'boxes' || !ready) && <>
         <div className="section-title">The build</div>
         <div className="grid2">
           <Field label="Species"><input type="text" list="dl-species" value={b.species} onChange={e => setB(x => ({ ...x, species: e.target.value }))} placeholder="Tiefling, or anything homebrew" /></Field>
@@ -129,19 +171,21 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
           <textarea rows={4} value={look} onChange={e => setLook(e.target.value)} />
         </Field>
         <AiWrite kind="look" value={look} onChange={setLook} given={given} ready={ready} what="description of how they look" />
-
-        <div className="ai-box">
-          {job.busy
-            ? <div className="ai-row"><span className="muted small"><span className="spinner" /> {job.phase || 'building the sheet'}…</span><span className="grow" /><button className="btn sm" onClick={job.stop}>Stop</button></div>
-            : <div className="ai-row">
-              <span className="muted small grow">The AI builds the full 5e sheet from the build and the person: abilities, HP, AC, skills, attacks, spells, gear.</span>
-              <button className="btn primary" onClick={build} disabled={!ready || !b.cls.trim()}>{built ? 'Rebuild the sheet' : 'Build the sheet'}</button>
-            </div>}
-        </div>
       </>}
 
+      {tab === 'build' && <div className={`ai-box ${aiReady && !built && how === 'talk' ? 'go' : ''}`}>
+        {job.busy
+          ? <div className="ai-row"><span className="muted small"><span className="spinner" /> {job.phase || 'building the sheet'}…</span><span className="grow" /><button className="btn sm" onClick={job.stop}>Stop</button></div>
+          : <div className="ai-row">
+            <span className="muted small grow">{how === 'talk' && !b.cls.trim() ? 'Once a class is settled in the talk, the AI can build the full 5e sheet from it.'
+              : how === 'talk' && aiReady && !built ? 'The Dungeon Master has what it needs. Build the sheet now, or keep talking first.'
+              : 'The AI builds the full 5e sheet from the build and the person: abilities, HP, AC, skills, attacks, spells, gear.'}</span>
+            <button className="btn primary" onClick={build} disabled={!ready || !b.cls.trim()}>{built ? 'Rebuild the sheet' : 'Build the sheet'}</button>
+          </div>}
+      </div>}
+
       {tab === 'sheet' && <>
-        {!built && <div className="muted">No sheet yet. Fill in the build on the first tab and press Build the sheet, or write one by hand.</div>}
+        {!built && <div className="muted">No sheet yet. Talk it through or fill in the build on the first tab, then press Build the sheet. Or write one by hand.</div>}
         <div className="row wrap">
           <Seg value={sheetMode === 'levelup' || sheetMode === 'ai' ? 'view' : sheetMode} options={[{ value: 'view', label: 'View' }, { value: 'edit', label: 'Edit by hand' }]} onChange={v => setSheetMode(v as any)} />
           <span className="grow" />
