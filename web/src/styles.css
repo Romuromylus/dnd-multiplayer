@@ -325,6 +325,11 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
 .prose .roll.r-crit { border-left-color: var(--accent); background: var(--accent-soft); } .prose .roll.r-crit .res { color: var(--accent); }
 .prose .roll.r-fail { border-left-color: var(--danger); } .prose .roll.r-fail .res { color: var(--danger); }
 .prose .roll.r-fumble { border-left-color: var(--danger); background: var(--danger-soft); } .prose .roll.r-fumble .res { color: var(--danger); }
+/* An Inspiration award: the Dungeon Master's nod to a player, set apart from the story like a roll. */
+.prose .insp-line { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--text); border: 1px solid var(--accent); border-radius: 7px; padding: 6px 12px; margin: 14px 0 6px; background: var(--accent-soft); text-indent: 0; }
+.prose .insp-line .star { color: var(--accent); font-size: 15px; }
+.prose .insp-line b { color: var(--accent); font-weight: 700; }
+.prose .insp-line .why { color: var(--muted); }
 .prose .chaphead { text-align: center; margin: 6px 0 22px; text-indent: 0; }
 .prose .chaphead .n { font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--accent); text-transform: uppercase; }
 .prose .chaphead .t { font-family: var(--serif); font-size: 24px; font-weight: 600; line-height: 1.25; margin: 4px 0 2px; color: var(--text); }

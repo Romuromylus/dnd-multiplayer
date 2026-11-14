@@ -32,7 +32,7 @@ export function spokenText(raw: string): string {
       const [n = '', title = ''] = x.split('|').map(v => v.trim());
       return `\n\nChapter ${n}${title ? `. ${title}` : ''}${/[.!?…]$/.test(title) ? '' : '.'}\n\n`;
     })
-    .replace(/<(scene|roll|gate|room_result)>[^<]*<\/\1>/g, '\n\n')
+    .replace(/<(scene|roll|inspiration|gate|room_result)>[^<]*<\/\1>/g, '\n\n')
     .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '')
     .replace(/<passage id="\d+"[^>]*\/>/g, '')
     .replace(/<br\s*\/?>/gi, '\n')

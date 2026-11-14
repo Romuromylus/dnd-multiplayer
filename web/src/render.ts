@@ -40,10 +40,15 @@ function rollClass(result: string) {
   return 'ok';
 }
 
-// Dice lines and scene lines as their own blocks. A tag still streaming in is hidden until it closes.
+// Dice lines, scene lines and Inspiration awards as their own blocks. A tag still streaming in is hidden until it closes.
 function gameMarkup(text: string): string {
-  if (!text.includes('<roll>') && !text.includes('<scene')) return text;
+  if (!text.includes('<roll>') && !text.includes('<scene') && !text.includes('<inspiration>')) return text;
   return text
+    .replace(/<inspiration>([^<]*)<\/inspiration>/g, (_, x: string) => {
+      const [who = '', ...why] = x.split('|').map(v => v.trim());
+      const reason = why.filter(Boolean).join(', ');
+      return `\n\n<div class="insp-line"><span class="star">✦</span><span><b>${esc(who)}</b> earns Inspiration${reason ? `<span class="why">: ${esc(reason)}</span>` : ''}</span></div>\n\n`;
+    })
     .replace(/<scene>([^<]*)<\/scene>/g, (_, x: string) => {
       const [place = '', ...when] = x.split('|').map(v => v.trim());
       return `\n\n<div class="scene-line"><span class="when">${esc(when.filter(Boolean).join(' · '))}</span><span class="where">${esc(place)}</span></div>\n\n`;
@@ -56,7 +61,7 @@ function gameMarkup(text: string): string {
       const math = `${r.mod && r.mod !== '+0' ? `${r.mod} ` : ''}= ${r.total}${vs ? ` vs ${vs}` : ''}`;
       return `\n\n<div class="roll r-${/initiative/i.test(r.check) ? 'init' : rollClass(r.result)}"><span class="die">${esc(r.die.startsWith('d') ? r.die : `d20 ${r.die}`)}</span><span class="who">${esc(r.who)}</span><span class="stat">${esc(r.check)}</span><span class="what">${esc(r.what)}</span><span class="math">${esc(math)}</span><span class="res">${esc(r.result)}</span></div>\n\n`;
     })
-    .replace(/<(roll|scene)>[^<]*$/, '');
+    .replace(/<(roll|scene|inspiration)>[^<]*$/, '');
 }
 
 // A roll line: who|check|what|d20|mod|total|DC or AC|result. An older seven-field line has no "who".
@@ -81,7 +86,7 @@ function markQuotes(root: Node) {
   let inQ = false;
   for (const node of nodes) {
     const el = node.parentElement;
-    if (!el || el.closest('code, pre, .roll, .scene-line')) continue;
+    if (!el || el.closest('code, pre, .roll, .scene-line, .insp-line')) continue;
     const b = el.closest(BLOCK);
     if (b !== block) { block = b; inQ = false; }
     const parts: [string, boolean][] = [];

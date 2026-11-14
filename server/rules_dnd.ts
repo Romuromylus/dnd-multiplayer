@@ -54,7 +54,7 @@ The math:
 - Attack roll = d20 + ability modifier (Strength for melee, Dexterity for ranged or finesse, the spellcasting ability for spell attacks) + proficiency bonus with a proficient weapon or any spell, against the target's AC. A natural 20 is a critical hit (roll the damage dice twice, add the modifier once); a natural 1 always misses.
 - Spell save DC = 8 + proficiency bonus + spellcasting ability modifier. The target rolls the saving throw; half damage on a success where the spell says so.
 - Advantage: take the next two d20 from that roller's row and keep the higher. Disadvantage: keep the lower. Any amount of both cancels to a straight roll. Cover adds +2 (half) or +5 (three-quarters) to AC and Dexterity saves.
-- Inspiration, when a sheet shows it, is spent by its player saying so: advantage on one roll.
+- Inspiration: a character has it or doesn't (their sheet's resources say "Inspiration: yes" or "no"). Their player spends it by saying so in their action: advantage on one attack, save or check, and it's gone. That roll line's check says so, like "Longbow attack, with Inspiration".
 
 Results:
 - Checks and saves: meeting the DC is a Success, beating it by 5 or more a Strong Success, missing it a Failure. A natural 20 or 1 on a check or save is just its number.
@@ -82,6 +82,9 @@ Each player's character has a 5e character sheet, kept by the app and shown in t
 - Spending is real: a spell of 1st level or higher uses a slot of its level or higher (cantrips use none); a class resource (Rage, Ki, Bardic Inspiration, Channel Divinity, Second Wind, Action Surge...) is used up until its rest; arrows, potions and scrolls run out.
 - Concentration: a character concentrates on one spell at a time. Taking damage calls for a Constitution save (DC 10 or half the damage, whichever is higher) with a roll line, or the spell ends.
 - Never write a sheet into the passage. The records keeper updates the sheets from what happens on the page, so make every change readable there: damage and healing in roll lines or plain words, slots and resources spent, money spent or found, items gained, lost or used up, conditions gained or recovered.
+- Awarding Inspiration is yours to do, sparingly. A character earns it when their player, this round, played them true to who they are (a personality trait, ideal, bond or flaw from their sheet or description) in a way that cost them something or carried the scene, or did something truly heroic or clever. Not every good line earns it: a few awards across a chapter for the whole table, never two in one passage, never for your own choices, and never to someone whose sheet already shows Inspiration: yes. Mark an award with one line of its own at the very end of the passage, after the last prose:
+<inspiration>[name]|[what earned it, a few words]</inspiration>
+<inspiration>Mira Saltwind|Kept her word to the drowned girl, though it cost her the boat</inspiration>
 </character_sheets>`;
 
 export const COMBAT = `<combat>
@@ -221,7 +224,7 @@ ${intro}
 3. Dice: take each roller's d20s from their own row and the other dice from the shared rows, in story order, and work out each total and its result. Results stand as rolled.
 4. The world's turn: how people and foes respond, with their own roll lines when they act against the party. When a fight starts, write a stat line for each foe (AC, HP, speed, attacks with bonus and damage, special abilities) from its 5e stat block or one built to the same scale; the records keeper takes their AC and HP from these notes.
 5. Knowledge check: what each person who speaks or reacts actually knows, and nothing more.
-6. How each acting character performs what their player described (their words and moves, true to the intent), so everyone who acted gets a real moment; and the stopping point: the moment that calls on the party to act. Never decide anyone's next move, and offer no options.
+6. How each acting character performs what their player described (their words and moves, true to the intent), so everyone who acted gets a real moment; and the stopping point: the moment that calls on the party to act. Never decide anyone's next move, and offer no options. Then Inspiration: did anyone's play this round truly earn it (rarely), and do they already have it?
 7. Settings in force: ${settingsInForce(s, DND_TOGGLES, DND_PICKS)}. Each has its block in the rules; decide what each one asks of this passage.${lewdPlan(s)}
 Then write the passage, with each roll line on its own line just before the prose it decides.
 </turn_planning>`);
@@ -235,8 +238,8 @@ export function dndWriteReminders(s: StorySettings): string {
 - Each player controls their own character: write out what each player said their character does, in that character's voice and true to their intent, but never decide anything new for anyone, never list options, and stop at a moment that calls on the party to act.
 - Every uncertain, risky action gets a roll line, with the roller's d20s from their own row of the dice tray and other dice from the shared rows. Never invent a number. Results stand as rolled, and a success is a real success. Talk is free unless someone is persuading, deceiving, intimidating or bargaining.
 - ${on(s, 'scene_tracker')
-    ? 'The passage contains only the story and its roll lines, plus a <scene> line wherever the place changes or time jumps: at the start, and at any cut partway through. No notes, headings, sheets or other tags.'
-    : 'The passage contains only the story and its roll lines: no notes, headings, scene lines, sheets or other tags.'}
+    ? 'The passage contains only the story and its roll lines, plus a <scene> line wherever the place changes or time jumps (at the start, and at any cut partway through) and an <inspiration> line at the very end when one is awarded. No notes, headings, sheets or other tags.'
+    : 'The passage contains only the story and its roll lines, plus an <inspiration> line at the very end when one is awarded: no notes, headings, scene lines, sheets or other tags.'}
 - A mode is ON exactly when its block (<dead_dove_mode>, <friction_mode>) appears anywhere in these instructions, and OFF when it doesn't.
 </reminders>`);
 }
@@ -271,7 +274,7 @@ ${SCENE_LINE_RECORDS}`);
 - hp: current/max, with temporary HP after it ("21/24 +5 temp"). Subtract damage from the roll lines against that character (temporary HP first); add healing. A long rest restores full HP.
 - hit_dice: total and left ("3d8, 2 left"); spent on a short rest, half regained on a long rest.
 - spell_slots: each level as left/max ("1st 2/4, 2nd 1/2"); spent when a spell of that level is cast, all back on a long rest (Warlock pact slots on a short rest).
-- resources: class resources and Inspiration with uses left ("Rage 1/3, Inspiration: yes"); spent when used, back on the rest the feature names.
+- resources: class resources and Inspiration with uses left ("Rage 1/3, Inspiration: yes"); spent when used, back on the rest the feature names. Inspiration turns to yes when the passage has an <inspiration>[name]|[why]</inspiration> line for that character, and to no when one of their roll lines says "with Inspiration".
 - conditions: short and concrete, with what they do: poisoned, prone, frightened of the ogre, exhaustion 1, concentrating on Bless, dying with its death saves ("Dying: 1 success, 2 failures"), stable, dead; "None" when clear.
 - equipment and money: items gained, lost, used up or broken (arrows, potions, scrolls); coins spent, found or paid.
 - xp: current/next threshold ("950/2,700").${s.levelling === 'milestone' ? ' Levelling is by milestone in this campaign: leave XP alone.' : ' Award XP for what happened on the page: a defeated, routed or outwitted foe gives its challenge rating\'s XP split among the characters who took part; a quest finished, a milestone reached or a clever solution gives 50 to 300 per character by its size. Nothing for nothing.'} The next threshold is the one for the level after the sheet's current level.
@@ -291,7 +294,7 @@ export function dndCheckSystem(s: StorySettings): string {
 - dice: a roll line takes a d20 that isn't the next unused one from that roller's own row (players' characters each have a row; everyone else rolls from the world's row), uses a damage die out of order, has a total that doesn't add up, a result that doesn't match the total against the DC or AC (Hit at or above the AC, Success at or above the DC, Strong Success at DC + 5, Critical Hit only on a natural 20), damage outside what the dice allow, or prose that turns a failed roll into a success (or the reverse).
 - agency: a player's character is made to do, say, decide, feel or think something new that their player didn't give this round. Writing out in full what the player described is fine: their words for what they said they say, and the parts of an action they named (a spell's spoken words and gestures, drawing the weapon for the attack). Having the character react to a new event for them is not. A character whose player sent nothing acting or speaking counts.${quotes} In the campaign's opening (an <opening> instead of the players' actions), showing each character present, how they look and carry themselves and how they came to be there is fine; speaking, deciding or reacting is not.
 - options: the passage lists choices, suggests what the party could do next, or asks "what do you do?".
-- sheet: a character uses a spell, slot, feature, item or resource their sheet doesn't have or has already spent, or acts with HP or conditions the sheet rules out.
+- sheet: a character uses a spell, slot, feature, item or resource their sheet doesn't have or has already spent (Inspiration included), or acts with HP or conditions the sheet rules out; or an <inspiration> line goes to a character whose sheet already shows Inspiration: yes.
 - leak: someone says, uses or acts on a name, fact or event they don't know (by the ledger or the story so far), or that happened where they weren't.
 - contradiction: the passage contradicts a story fact, a card or the scene state (a foe's HP, who is present).
 - clock: time or place errors, someone in two places.
