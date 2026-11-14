@@ -5,7 +5,7 @@ export type Toggle = { key: string; label: string; default: boolean; group: stri
 export type Opt = { label: string; default: string; hint?: string; options: { value: string; label: string }[] };
 export type Schema = { picks: Pick[]; toggles: Toggle[]; inkwell: Record<string, Opt>; table: Record<string, Opt>; sheet: FieldDef[]; npc: FieldDef[]; defaultTemplate: string };
 export type Srd = { species: string[]; classes: string[]; backgrounds: string[]; subclasses: Record<string, string[]> };
-export type Persona = { id: number; user_id: number; name: string; description: string; look: string; sheet: string; avatar: string | null; updated_at: string };
+export type Persona = { id: number; user_id: number; name: string; description: string; look: string; sheet: string; build?: string; avatar: string | null; updated_at: string };
 export type World = { id: number; user_id: number; name: string; text: string; owner?: string };
 export type CampaignItem = { id: number; title: string; host_user_id: number; host: string; archived: number; updated_at: string; seats: number; passages: number; my_persona: number | null; seated: number };
 export type Connection = {
@@ -207,7 +207,10 @@ export function usageLine(u: any) {
 
 export const portraitKey = (name: string) => `portrait:${name.trim().toLowerCase().replace(/\s+/g, ' ')}`;
 export const sheetOf = (p: Persona): Record<string, string> => { try { return JSON.parse(p.sheet || '{}'); } catch { return {}; } };
-export const hasSheet = (p: Persona) => Object.values(sheetOf(p)).some(v => String(v ?? '').trim());
+// A sheet is built once it has more than the look (which the character's own Look field also fills).
+export const sheetBuilt = (s: Record<string, string>) => Object.entries(s).some(([k, v]) => k !== 'look' && k !== 'look_now' && String(v ?? '').trim());
+export const hasSheet = (p: Persona) => sheetBuilt(sheetOf(p));
+export const buildOf = (p: Persona | null): Record<string, string> => { try { return JSON.parse(p?.build || '{}'); } catch { return {}; } };
 // "12/30" → [12, 30]
 export function hpOf(hp: string | undefined): [number, number] | null {
   const m = String(hp ?? '').match(/(-?\d+)\s*\/\s*(\d+)/);

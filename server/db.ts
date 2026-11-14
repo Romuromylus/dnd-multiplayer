@@ -314,6 +314,13 @@ create table if not exists assets (
 );
 `);
 
+// Columns added after the first release, for databases made before them.
+const addColumn = (table: string, col: string, def: string) => {
+  if (!(db.prepare(`pragma table_info(${table})`).all() as { name: string }[]).some(c => c.name === col)) db.exec(`alter table ${table} add column ${col} ${def}`);
+};
+// A character's build choices (species, class, scores, wishes...), kept so a character saved before its sheet is built loses nothing.
+addColumn('personas', 'build', "text not null default '{}'");
+
 export function kvGet(key: string): string | null {
   const r = db.prepare('select value from app_kv where key = ?').get(key) as { value: string } | undefined;
   return r?.value ?? null;

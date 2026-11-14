@@ -279,15 +279,18 @@ const myPersona = (c: Context, id: number) => {
   const p = R.getPersona(id);
   return p && (p.user_id === A.me(c).id || isAdmin(c)) ? p : null;
 };
+const BUILD_KEYS = ['species', 'cls', 'subclass', 'background', 'level', 'scoresHow', 'scores', 'notes'] as const;
 function personaFromBody(b: any, ex: Partial<R.Persona> = {}) {
   const sheet = b.sheet && typeof b.sheet === 'object' ? JSON.stringify(Object.fromEntries(SHEET_KEYS.map(k => [k, str(b.sheet[k], 4000)]))) : ex.sheet ?? '{}';
-  return { name: str(b.name ?? ex.name, 80).trim(), description: str(b.description ?? ex.description, 12000), look: str(b.look ?? ex.look, 3000), sheet, avatar: 'avatar' in b ? (b.avatar ? str(b.avatar, 400000) : null) : ex.avatar ?? null };
+  // The build choices, kept as typed, so a character saved before the sheet is built comes back as it was left.
+  const build = b.build && typeof b.build === 'object' ? JSON.stringify(Object.fromEntries(BUILD_KEYS.map(k => [k, str(b.build[k], k === 'notes' ? 4000 : 300)]))) : ex.build ?? '{}';
+  return { name: str(b.name ?? ex.name, 80).trim(), description: str(b.description ?? ex.description, 12000), look: str(b.look ?? ex.look, 3000), sheet, build, avatar: 'avatar' in b ? (b.avatar ? str(b.avatar, 400000) : null) : ex.avatar ?? null };
 }
 api.post('/personas', async c => {
   const f = personaFromBody(await body(c));
   if (!f.name) return bad(c, 'Give the character a name.');
-  const id = db.prepare('insert into personas(user_id, name, description, look, sheet, avatar, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(A.me(c).id, f.name, f.description, f.look, f.sheet, f.avatar, now(), now()).lastInsertRowid;
+  const id = db.prepare('insert into personas(user_id, name, description, look, sheet, build, avatar, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(A.me(c).id, f.name, f.description, f.look, f.sheet, f.build, f.avatar, now(), now()).lastInsertRowid;
   return c.json({ persona: R.getPersona(Number(id)) });
 });
 api.put('/personas/:pid', async c => {
@@ -295,7 +298,7 @@ api.put('/personas/:pid', async c => {
   if (!ex) return bad(c, 'Not found', 404);
   const f = personaFromBody(await body(c), ex);
   if (!f.name) return bad(c, 'Give the character a name.');
-  db.prepare('update personas set name = ?, description = ?, look = ?, sheet = ?, avatar = ?, updated_at = ? where id = ?').run(f.name, f.description, f.look, f.sheet, f.avatar, now(), ex.id);
+  db.prepare('update personas set name = ?, description = ?, look = ?, sheet = ?, build = ?, avatar = ?, updated_at = ? where id = ?').run(f.name, f.description, f.look, f.sheet, f.build, f.avatar, now(), ex.id);
   for (const s of db.prepare('select story_id from seats where persona_id = ?').all(ex.id) as { story_id: number }[]) broadcast(s.story_id, 'refresh', { what: 'party' });
   return c.json({ persona: R.getPersona(ex.id) });
 });
@@ -377,6 +380,12 @@ const inviteCode = () => {
   }
 };
 
+// A character brought to a table must have a sheet: one without (only a look, or nothing) would sit down blank.
+const builtPersona = (c: Context, id: unknown) => {
+  const p = id ? myPersona(c, Number(id)) : null;
+  return p && R.sheetBuilt(p) ? p.id : null;
+};
+
 api.post('/stories', async c => {
   const b = await body(c);
   const title = str(b.title, 120).trim();
@@ -385,7 +394,7 @@ api.post('/stories', async c => {
   const id = db.prepare(`insert into stories(title, host_user_id, invite_code, bible, settings, summary_template, writer_conn_id, records_conn_id, created_at, updated_at) values (?, ?, ?, ?, ?, '', ?, ?, ?, ?)`)
     .run(title, A.me(c).id, inviteCode(), str(b.bible, 40000), JSON.stringify(settings), b.writer_conn_id || null, b.records_conn_id || null, now(), now()).lastInsertRowid as number;
   R.openChapter(id);
-  const pid = b.persona_id && myPersona(c, Number(b.persona_id)) ? Number(b.persona_id) : null;
+  const pid = builtPersona(c, b.persona_id);
   seat(id, A.me(c).id, pid);
   return c.json({ id });
 });
@@ -395,7 +404,7 @@ api.post('/join', async c => {
   const code = str(b.code, 32).trim().toUpperCase();
   const story = db.prepare('select id from stories where invite_code = ? and archived = 0').get(code) as { id: number } | undefined;
   if (!story) return bad(c, 'No campaign has that invite code.', 404);
-  const pid = b.persona_id && myPersona(c, Number(b.persona_id)) ? Number(b.persona_id) : null;
+  const pid = builtPersona(c, b.persona_id);
   const had = seatOf(story.id, A.me(c).id);
   seat(story.id, A.me(c).id, pid ?? had?.persona_id ?? null);
   return c.json({ id: story.id });
@@ -507,7 +516,7 @@ api.put('/stories/:id/seat', async c => {
     const p = pid ? R.getPersona(pid) : null;
     if (pid && (!p || p.user_id !== uid)) return bad(c, 'That character belongs to someone else.');
     if (pid && db.prepare('select 1 from seats where story_id = ? and persona_id = ? and user_id != ?').get(story.id, pid, uid)) return bad(c, 'That character is already at this table.');
-    if (pid && !Object.values(parseJson<Record<string, string>>(p!.sheet, {})).some(v => v?.trim())) return bad(c, 'Build that character\'s sheet first (My characters).');
+    if (pid && !R.sheetBuilt(p)) return bad(c, 'Build that character\'s sheet first (My characters).');
     db.prepare('update seats set persona_id = ? where story_id = ? and user_id = ?').run(pid, story.id, uid);
     if (pid) ensureSheets(story.id);
     noteArrival(story.id, uid, before);

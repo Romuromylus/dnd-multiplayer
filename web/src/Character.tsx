@@ -1,7 +1,7 @@
 // A player's character in their own library: who they are, how they look, the 5e sheet (built by the AI from a few choices,
 // then theirs to change), and a portrait. A campaign takes a copy of the sheet when the character sits down at its table.
-import { useMemo, useState } from 'react';
-import { api, sheetOf, type Home, type Persona } from './api';
+import { useMemo, useRef, useState } from 'react';
+import { api, buildOf, sheetBuilt, sheetOf, type Home, type Persona } from './api';
 import { AiWrite, PortraitMaker, shrinkImage, useAssistJob } from './Assist';
 import { Avatar, SheetAi, SheetForm, SheetView } from './Sheet';
 import { errToast, Field, Modal, Seg, toast, useAsync } from './ui';
@@ -22,13 +22,16 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
   const [avatar, setAvatar] = useState<string | null>(ex?.avatar ?? null);
   const [sheet, setSheet] = useState<Record<string, string>>(initial);
   const [id, setId] = useState<number | null>(ex?.id ?? null);
-  const built = Object.values(sheet).some(v => String(v ?? '').trim());
+  const built = sheetBuilt(sheet);
   const [tab, setTab] = useState<'build' | 'sheet'>(built ? 'sheet' : 'build');
   const [sheetMode, setSheetMode] = useState<'view' | 'edit' | 'levelup' | 'ai'>('view');
-  // The quick build: a few choices the AI turns into a full sheet.
+  // The quick build: a few choices the AI turns into a full sheet. They're saved with the character, so a character saved
+  // before the sheet is built comes back with everything as it was left.
+  const saved = buildOf(ex);
   const [b, setB] = useState({
-    species: initial.species ?? '', cls: (initial.class ?? '').replace(/\s*\d+.*$/, ''), subclass: '', background: initial.background ?? '',
-    level: Number(initial.level) || 1, scoresHow: SCORES[0].value, scores: '', notes: '',
+    species: saved.species ?? initial.species ?? '', cls: saved.cls ?? (initial.class ?? '').replace(/\s*\d+.*$/, ''), subclass: saved.subclass ?? '',
+    background: saved.background ?? initial.background ?? '', level: Number(saved.level) || Number(initial.level) || 1,
+    scoresHow: SCORES.some(s => s.value === saved.scoresHow) ? saved.scoresHow : SCORES[0].value, scores: saved.scores ?? '', notes: saved.notes ?? '',
   });
   const job = useAssistJob();
   const { busy, run } = useAsync();
@@ -37,13 +40,25 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
   const ready = p.home.hasWriter;
   const given = [name && `Name: ${name}`, b.species && `Species: ${b.species}`, b.cls && `Class: ${b.cls}${b.subclass ? ` (${b.subclass})` : ''}`, b.background && `Background: ${b.background}`, sheet.class && `Sheet: ${sheet.class}`].filter(Boolean).join('\n');
 
+  // Closing with unsaved changes asks first (a sheet the AI just built is only kept once saved).
+  const current = () => JSON.stringify({ name, description, look, avatar, sheet, b });
+  const clean = useRef<string | null>(null);
+  if (clean.current === null) clean.current = current();
+  const close = () => {
+    if (job.busy && !confirm('The sheet is still being built. Close anyway? It won’t be kept.')) return;
+    if (!job.busy && current() !== clean.current && !confirm('Close without saving? Your changes to this character will be lost.')) return;
+    p.onClose();
+  };
+
   const save = (close = true) => run(async () => {
     if (!name.trim()) throw new Error('Give the character a name.');
-    const body = { name, description, look, avatar, sheet: { ...sheet, look: sheet.look || look } };
+    // The look goes onto the sheet only once there is a sheet: a look on its own would pass for a built one.
+    const body = { name, description, look, avatar, build: { ...b, level: String(b.level) }, sheet: built ? { ...sheet, look: sheet.look || look } : sheet };
     const r = await api<{ persona: Persona }>(id ? `/personas/${id}` : '/personas', { method: id ? 'PUT' : 'POST', body });
     setId(r.persona.id);
+    clean.current = current();
     await p.onSaved();
-    toast('Character saved.');
+    toast(built ? 'Character saved.' : 'Saved. Build the sheet before bringing them to a table.');
     if (close) p.onClose();
     return r.persona;
   });
@@ -61,10 +76,10 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
   const upload = async (file: File) => { try { setAvatar(await shrinkImage(file)); } catch (e) { errToast(e); } };
 
   return (
-    <Modal title={ex ? name || 'Character' : 'New character'} wide onClose={p.onClose} foot={<>
+    <Modal title={ex ? name || 'Character' : 'New character'} wide onClose={close} foot={<>
       {id && <button className="btn danger" onClick={del} disabled={busy}>Delete</button>}
       <span className="grow" />
-      <button className="btn ghost" onClick={p.onClose}>Cancel</button>
+      <button className="btn ghost" onClick={close}>Cancel</button>
       <button className="btn primary" onClick={() => save()} disabled={busy || !name.trim() || job.busy}>Save</button>
     </>}>
       <div className="char-top">

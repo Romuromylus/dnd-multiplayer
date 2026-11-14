@@ -13,7 +13,13 @@ export type Story = {
   writer_conn_id: number | null; records_conn_id: number | null; archived: number; created_at: string; updated_at: string;
 };
 // A player's character in their library.
-export type Persona = { id: number; user_id: number | null; name: string; description: string; look: string; sheet: string; avatar: string | null };
+export type Persona = { id: number; user_id: number | null; name: string; description: string; look: string; sheet: string; build: string; avatar: string | null };
+// A sheet counts as built once it has more than the look (which the character's own Look field also fills).
+export const sheetBuilt = (p: Pick<Persona, 'sheet'> | null | undefined) => {
+  let s: Record<string, unknown> = {};
+  try { s = JSON.parse(p?.sheet || '{}'); } catch { /* not a sheet */ }
+  return Object.entries(s).some(([k, v]) => k !== 'look' && k !== 'look_now' && String(v ?? '').trim());
+};
 export type Chapter = { id: number; story_id: number; number: number; title: string; status: string; summary: string; summary_status: string; arc_id: number | null; closed_at: string | null; plan: string };
 export type Passage = {
   id: number; story_id: number; chapter_id: number; scene_id: number | null; seq: number; kind: string; text: string;
