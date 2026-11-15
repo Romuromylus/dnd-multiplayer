@@ -537,3 +537,11 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
 .gameover .welcome-party { margin: 10px 0 14px; }
 .gameover .rchip.dead { border-color: var(--danger); }
 .gameover p { margin: 10px 0 0; }
+
+/* A sheet's long fields as bullet lists, spells nested under their level. */
+.s5-list { margin: 3px 0 0; padding-left: 18px; color: var(--text); white-space: normal; display: flex; flex-direction: column; gap: 4px; }
+.s5-list li { line-height: 1.45; padding-left: 2px; }
+.s5-list li::marker { color: var(--accent); }
+.s5-list .lbl { font-weight: 650; color: var(--text); }
+.s5-list ul { margin: 3px 0 2px; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.s5-list ul li::marker { color: var(--dim); }

@@ -40,6 +40,78 @@ export function HpBar(p: { hp?: string; small?: boolean }) {
 
 const shown = (v: string | undefined) => !!v && !/^\s*(none|—|-|n\/a)?\s*$/i.test(v);
 
+// ---------------------------------------------------------------- long fields as bullet lists
+// The records keep features, spells, gear and the rest as running text. Here they are cut into entries at the separators
+// the sheet uses, never inside brackets, so a description's own commas and semicolons stay with it.
+type Cut = { semis?: 'any' | 'entry'; commas?: boolean; sentences?: boolean; sub?: boolean };
+const LIST_FIELDS: Record<string, Cut> = {
+  features: { semis: 'entry' }, spells: { semis: 'entry', sub: true }, personality: { semis: 'entry' },
+  resources: { semis: 'any', sentences: true }, attacks: { semis: 'any' }, proficiencies: { semis: 'any' }, equipment: { semis: 'any', commas: true },
+};
+// A labelled entry starting: "Fey Ancestry: ...", "1st level (known): ...", "Tides of Chaos (1/long rest): ...".
+const LABEL = /^[A-Z0-9][^.:;()\n]{0,50}(?:\([^()]*\))?[^.:;()\n]{0,24}:\s/;
+const LABELLED = /^([A-Z0-9][^.:;()\n]{0,50}(?:\([^()]*\))?[^.:;()\n]{0,24}):\s+([\s\S]+)$/;
+
+function cutPoints(s: string, c: Cut, labelsOnly: boolean): number[] {
+  const at: number[] = [];
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '(' || ch === '[') depth++;
+    else if ((ch === ')' || ch === ']') && depth > 0) depth--;
+    if (depth) continue;
+    const next = s.slice(i + 1).replace(/^ /, '');
+    const spaced = s[i + 1] === ' ';
+    const label = (ch === '.' || ch === ';') && spaced && LABEL.test(next);
+    const cut = ch === '\n' || label || (!labelsOnly && (
+      // "; Keen Senses" starts an entry; "; on a 1, roll again" goes on with the one before.
+      (ch === ';' && (c.semis === 'any' || (c.semis === 'entry' && /^[A-Z0-9]/.test(next))))
+      || (ch === ',' && !!c.commas)
+      || (ch === '.' && spaced && !!c.sentences && /^[A-Z0-9]/.test(next))));
+    if (cut) at.push(i);
+  }
+  return at;
+}
+export function cutEntries(s: string, c: Cut): string[] {
+  // Written as "Label: description" entries, a description's own semicolons stay in it.
+  const labelled = c.semis === 'entry' ? cutPoints(s, c, true) : [];
+  const at = labelled.length >= 2 ? labelled : cutPoints(s, c, false);
+  const out: string[] = [];
+  let from = 0;
+  for (const i of at) { out.push(s.slice(from, i)); from = i + 1; }
+  out.push(s.slice(from));
+  return out.map(x => x.trim().replace(/[.;,]$/, '').trim()).filter(Boolean);
+}
+
+type Entry = { label?: string; text: string; sub?: string[] };
+export function listOf(key: string, v: string): Entry[] | null {
+  const c = LIST_FIELDS[key];
+  if (!c) return null;
+  const entries = cutEntries(v, c).map(x => {
+    const m = x.match(LABELLED);
+    const e: Entry = m ? { label: m[1].trim(), text: m[2].trim() } : { text: x };
+    // A spell level's spells, one each: "Cantrips (5): Fire Bolt, Mage Hand, ...".
+    if (c.sub && e.label) { const sub = cutEntries(e.text, { commas: true }); if (sub.length > 1) e.sub = sub; }
+    return e;
+  });
+  return entries.length > 1 || entries[0]?.sub ? entries : null;
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function FieldBody(p: { k: string; v: string }) {
+  const list = listOf(p.k, p.v);
+  if (!list) return <div>{p.v}</div>;
+  return (
+    <ul className="s5-list">
+      {list.map((e, i) => <li key={i}>
+        {e.label && <span className="lbl">{e.label}{e.sub ? '' : ':'}</span>}{e.label && !e.sub ? ' ' : ''}
+        {e.sub ? <ul>{e.sub.map((x, j) => <li key={j}>{cap(x)}</li>)}</ul> : e.label ? e.text : cap(e.text)}
+      </li>)}
+    </ul>
+  );
+}
+
 export function SheetView(p: { fields: Record<string, string>; defs: FieldDef[] }) {
   const f = p.fields;
   const ab = abilities(f.abilities);
@@ -58,7 +130,7 @@ export function SheetView(p: { fields: Record<string, string>; defs: FieldDef[] 
         {f.xp && <span className="chip"><b>XP</b> {f.xp}</span>}
       </div>
       {ab && <div className="s5-abil">{ab.map(a => <div key={a.k} className="ab"><div className="k">{a.k}</div><div className="m">{a.mod}</div><div className="s">{a.score}</div></div>)}</div>}
-      {rest.map(d => <div key={d.key} className="s5-f"><b>{d.label}</b><div>{f[d.key]}</div></div>)}
+      {rest.map(d => <div key={d.key} className="s5-f"><b>{d.label}</b><FieldBody k={d.key} v={f[d.key]} /></div>)}
     </div>
   );
 }
