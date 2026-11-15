@@ -23,8 +23,13 @@ threads; a continuity check reads each passage against them; chapters close into
 - **Rounds.** Write what your character does, in "quotes" for speech and ((double brackets)) for out-of-character
   questions, then press Ready (or Pass). The round starts once every player marked *here* is ready, or when the host
   presses Go (a campaign setting). Players marked *away* tag along doing nothing new.
-- **Levelling.** XP or milestone. When a character can level up, its player presses Level up: the AI does the 5e math,
-  takes the player's wishes (homebrew spells welcome) and shows what changes before it is kept.
+- **Fights** are built to the 5e XP budget for the party at the table (a first job stays easy to medium), and foes break
+  and run when a fight turns against them. When every character is down at 0 HP at once, it's **game over**: the table
+  stops, and the host picks **Try the fight again** (back to just before it began, sheets and all), **Go back one
+  round**, or **Carry on**.
+- **Levelling.** XP or milestone. When a character can level up, its player presses Level up and talks it through with
+  the Dungeon Master (what the new level gives, then each choice it asks for, with a real 🎲 roll for HP), or just says
+  what they want. The AI does the 5e math and shows what changes before it is kept.
 - **The host** can retry, correct or edit a passage, see the Dungeon Master's notes and dice, keep or undo record
   changes, close chapters, and change the campaign's settings. Players never see the Dungeon Master's notes, the dice
   tray, the secrets ledger or anyone's hidden backstory.

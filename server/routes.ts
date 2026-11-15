@@ -11,7 +11,7 @@ import { XP_LEVELS } from './rules_dnd.ts';
 import { closeChapter, rollupArc, summarizeChapter } from './chapters.ts';
 import { ensureSheets, flushPendingRecords, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
 import { ART_WIDTHS, artMap, artWatchers, assetPath, deleteAsset, deleteStoryImages, enqueuePortraits, enqueueSceneArt, getAsset, imageConn, pump, redoAsset, sceneKey, sizedFile } from './art.ts';
-import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
+import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runLevelChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
 import { voiceApi } from './voice.ts';
 import { broadcast, liveResponse, online } from './live.ts';
 import * as A from './auth.ts';
@@ -104,6 +104,56 @@ function seat(storyId: number, userId: number, personaId: number | null) {
 // A campaign has begun once the Dungeon Master has written its opening. Until then nobody plays a round: the host is
 // still gathering the table.
 const begun = (storyId: number) => !!db.prepare(`select 1 from passages where story_id = ? and kind = 'prose' limit 1`).get(storyId);
+
+// Game over: every character at the table is down at 0 HP (dying, stable or dead). The table stops there and the host
+// decides what comes next: back to before the fight, back one round, or carry on. Carrying on holds until someone is up again.
+type Fallen = { name: string; state: 'dying' | 'stable' | 'dead' };
+const fallenState = (f: Record<string, any>): Fallen['state'] => {
+  const cond = String(f?.conditions ?? '');
+  return /\bdead\b/i.test(cond) ? 'dead' : /\bstable\b/i.test(cond) ? 'stable' : 'dying';
+};
+const isDown = (f: Record<string, any>) => {
+  const hp = String(f?.hp ?? '').match(/^\s*(-?\d+)\s*\//);
+  return (!!hp && Number(hp[1]) <= 0) || fallenState(f) === 'dead';
+};
+const ackKey = (storyId: number) => `gameover_ack:${storyId}`;
+function gameOver(storyId: number): { party: Fallen[]; fight: boolean } | null {
+  if (!begun(storyId)) return null;
+  const cards = R.listSeats(storyId).filter(s => s.persona_id).map(s => R.userCard(storyId, s.persona_id!)).filter(c => !!c) as { fields: Record<string, any> }[];
+  const down = cards.length > 0 && cards.every(c => isDown(c.fields));
+  const acked = !!db.prepare('select 1 from app_kv where key = ?').get(ackKey(storyId));
+  if (!down) { if (acked) db.prepare('delete from app_kv where key = ?').run(ackKey(storyId)); return null; }
+  if (acked) return null;
+  return { party: cards.map(c => ({ name: String(c.fields.name ?? ''), state: fallenState(c.fields) })), fight: fightStart(storyId) != null };
+}
+const GAME_OVER = 'Game over: the whole party is down. The host decides what comes next.';
+
+// Where a rewind starts, in the open chapter: the round that began the latest fight (its first initiative roll), or the
+// latest round. A round is the players' actions and the passage written from them, so both go.
+const INITIATIVE = /<roll>[^<|]*\|\s*Initiative\s*\|/i;
+function roundFrom(ps: R.Passage[], i: number) { return i > 0 && ps[i - 1].kind === 'direction' ? ps[i - 1].seq : ps[i].seq; }
+function fightStart(storyId: number): number | null {
+  const ps = R.chapterPassages(R.openChapter(storyId).id);
+  for (let i = ps.length - 1; i >= 0; i--) if (ps[i].kind === 'prose' && INITIATIVE.test(ps[i].text)) return roundFrom(ps, i);
+  return null;
+}
+function lastRoundStart(storyId: number): number | null {
+  const ps = R.chapterPassages(R.openChapter(storyId).id);
+  for (let i = ps.length - 1; i >= 0; i--) if (ps[i].kind === 'prose') return roundFrom(ps, i);
+  return null;
+}
+// Takes the open chapter back to just before the passage at seq: everything from there on goes, with what it changed in the records.
+function rewindTo(storyId: number, fromSeq: number) {
+  const ch = R.openChapter(storyId);
+  const gone = (db.prepare('select id from passages where chapter_id = ? and seq >= ?').all(ch.id, fromSeq) as { id: number }[]).map(r => r.id);
+  db.transaction(() => {
+    R.undoPassageChanges(storyId, gone);
+    db.prepare('delete from passages where chapter_id = ? and seq >= ?').run(ch.id, fromSeq);
+    db.prepare('update actions set ready = 0 where story_id = ?').run(storyId);
+    db.prepare('delete from app_kv where key = ?').run(ackKey(storyId));
+  })();
+  return gone.length;
+}
 
 // A character brought to the table after the opening isn't in the scene yet: a note tells the Dungeon Master (and the table)
 // to bring them in with the next passage.
@@ -385,6 +435,14 @@ api.post('/personas/:pid/sheet/ai', async c => {
   const kind = b.kind === 'levelup' ? 'levelup' : 'edit';
   return helperJob(c, 'assist', kind === 'levelup' ? 'Levelling up' : 'Changing the sheet', j => runSheetEdit(j, { kind, name: p.name, sheet: parseJson(p.sheet, {}), request: str(b.request, 3000) }));
 });
+api.post('/personas/:pid/sheet/chat', async c => {
+  const p = myPersona(c, num(c.req.param('pid')));
+  if (!p) return bad(c, 'Not found', 404);
+  const b = await body(c);
+  const lines = chatLines(b.lines);
+  if (lines[lines.length - 1]?.role !== 'me') return bad(c, 'Say something first.');
+  return helperJob(c, 'assist', 'Talking', j => runLevelChat(j, { name: p.name, sheet: parseJson(p.sheet, {}), lines, choices: str(b.choices, 4000) }));
+});
 
 // ---------------------------------------------------------------- campaigns
 
@@ -477,7 +535,7 @@ api.get('/stories/:id', c => {
   const mine = db.prepare('select text, ready from actions where story_id = ? and user_id = ?').get(story.id, A.me(c).id) as any;
   return c.json({
     story: { ...story, invite_code: story.invite_code },
-    host, me: A.me(c).id, begun: begun(story.id),
+    host, me: A.me(c).id, begun: begun(story.id), gameOver: gameOver(story.id),
     chapters: db.prepare('select id, number, title, status, summary, summary_status, arc_id, closed_at from chapters where story_id = ? order by number').all(story.id),
     openChapterId: open.id,
     passages: R.chapterPassages(open.id).map(p => passageView(p, host)), scenes: scenesFor(open.id), scene: R.getSceneState(story.id),
@@ -634,7 +692,7 @@ function startRound(storyId: number, why: string) {
 
 function maybeStartRound(storyId: number): Job | null {
   const story = R.getStory(storyId);
-  if (!story || story.archived || story.settings.auto_go !== 'all_ready' || runningJob(storyId) || !R.storyConns(story).writer || !begun(storyId)) return null;
+  if (!story || story.archived || story.settings.auto_go !== 'all_ready' || runningJob(storyId) || !R.storyConns(story).writer || !begun(storyId) || gameOver(storyId)) return null;
   const party = R.party(storyId).filter(m => m.status === 'active');
   if (!party.length) return null;
   const ready = new Set((db.prepare('select user_id, text from actions where story_id = ? and ready = 1').all(storyId) as any[]).map(a => a.user_id));
@@ -647,6 +705,7 @@ api.put('/stories/:id/action', async c => {
   const s = seatOf(story.id, A.me(c).id);
   if (!s?.persona_id) return bad(c, 'Bring a character to the table first.');
   if (!begun(story.id)) return bad(c, "The campaign hasn't begun yet: the host begins it once everyone is at the table.", 409);
+  if (gameOver(story.id)) return bad(c, GAME_OVER, 409);
   const b = await body(c);
   const text = str(b.text, 6000);
   const ready = b.ready ? 1 : 0;
@@ -679,7 +738,30 @@ api.post('/stories/:id/go', c => {
   const story = campaign(c, { host: true }); if (failed(story)) return story;
   if (runningJob(story.id)) return bad(c, 'The Dungeon Master is already writing.', 409);
   if (!begun(story.id)) return bad(c, 'Begin the campaign first.', 409);
+  if (gameOver(story.id)) return bad(c, GAME_OVER, 409);
   return c.json({ jobId: startRound(story.id, 'Playing the round').id });
+});
+
+// After a game over, the host picks: back to before the fight, back one round, or carry on as things stand.
+api.post('/stories/:id/gameover', async c => {
+  const story = campaign(c, { host: true }); if (failed(story)) return story;
+  if (runningJob(story.id)) return bad(c, 'Wait for the Dungeon Master to finish.', 409);
+  const what = str((await body(c)).do, 20);
+  if (what === 'carry_on') {
+    db.prepare('insert into app_kv(key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(ackKey(story.id), now());
+    broadcast(story.id, 'refresh', { what: 'party' });
+    return c.json({ ok: true });
+  }
+  const from = what === 'fight' ? fightStart(story.id) : what === 'round' ? lastRoundStart(story.id) : null;
+  if (from == null) return bad(c, what === 'fight' ? 'No fight to go back to in this chapter.' : 'Nothing to go back to.');
+  // The opening stays: going back past it would un-begin the campaign.
+  const ch = R.openChapter(story.id);
+  if (!db.prepare(`select 1 from passages where story_id = ? and kind = 'prose' and not (chapter_id = ? and seq >= ?) limit 1`).get(story.id, ch.id, from))
+    return bad(c, 'That would undo the opening scene. Delete passages one by one instead.');
+  const removed = rewindTo(story.id, from);
+  broadcast(story.id, 'refresh', { what: 'passages' });
+  broadcast(story.id, 'actions', { actions: actionsView(story.id) });
+  return c.json({ ok: true, removed });
 });
 
 api.post('/stories/:id/retry', async c => {
@@ -689,6 +771,7 @@ api.post('/stories/:id/retry', async c => {
 });
 api.post('/stories/:id/continue', c => {
   const story = campaign(c, { host: true }); if (failed(story)) return story;
+  if (gameOver(story.id)) return bad(c, GAME_OVER, 409);
   return job(c, story, 'turn', 'Continuing', j => runContinue(j, story.id));
 });
 api.post('/stories/:id/fix', async c => {
@@ -822,6 +905,17 @@ api.post('/stories/:id/sheets/:pid/ai', async c => {
   const kind = b.kind === 'levelup' ? 'levelup' : 'edit';
   const recent = R.storyProse(story.id).slice(-3).map(p => p.text).join('\n\n').slice(-3000);
   return helperJob(c, 'assist', kind === 'levelup' ? 'Levelling up' : 'Changing the sheet', j => runSheetEdit(j, { kind, name: x.card.fields.name, sheet: x.card.fields, request: str(b.request, 3000), context: recent }), story.id);
+});
+// Talking a level-up through with the Dungeon Master, with what has happened in the campaign to guide the picks.
+api.post('/stories/:id/sheets/:pid/chat', async c => {
+  const story = campaign(c); if (failed(story)) return story;
+  const x = sheetFor(c, story, num(c.req.param('pid')));
+  if (!x?.card) return bad(c, 'Not your character.', 403);
+  const b = await body(c);
+  const lines = chatLines(b.lines);
+  if (lines[lines.length - 1]?.role !== 'me') return bad(c, 'Say something first.');
+  const recent = R.storyProse(story.id).slice(-3).map(p => p.text).join('\n\n').slice(-3000);
+  return helperJob(c, 'assist', 'Talking', j => runLevelChat(j, { name: x.card.fields.name, sheet: x.card.fields, lines, choices: str(b.choices, 4000), context: recent }), story.id);
 });
 // The campaign's sheet goes back to the character's library, so the next campaign starts from where this one left them.
 api.post('/stories/:id/sheets/:pid/save', c => {

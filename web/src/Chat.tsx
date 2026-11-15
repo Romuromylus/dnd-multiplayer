@@ -6,8 +6,9 @@ import { errToast } from './ui';
 export function ChatPanel(p: { d: Detail }) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [p.d.chat.length]);
+  const list = useRef<HTMLDivElement>(null);
+  // Down to the newest line, inside the list only (scrollIntoView would move the whole page on a phone).
+  useEffect(() => { const el = list.current; if (el) el.scrollTop = el.scrollHeight; }, [p.d.chat.length]);
   const send = async () => {
     if (!text.trim()) return;
     setSending(true);
@@ -16,7 +17,7 @@ export function ChatPanel(p: { d: Detail }) {
   return (
     <div className="chat">
       <div className="muted tiny">Out of character, between the players. The Dungeon Master never reads this.</div>
-      <div className="chat-list">
+      <div className="chat-list" ref={list}>
         {p.d.chat.length === 0 && <div className="muted small">Nothing said yet.</div>}
         {p.d.chat.map(c => (
           <div key={c.id} className={`chat-line ${c.user_id === p.d.me ? 'me' : ''}`}>
@@ -24,7 +25,6 @@ export function ChatPanel(p: { d: Detail }) {
             <div className="txt">{c.text}</div>
           </div>
         ))}
-        <div ref={end} />
       </div>
       <div className="row">
         <input type="text" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send(); }} placeholder="Say something to the table" maxLength={2000} />

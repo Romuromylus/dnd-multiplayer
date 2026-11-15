@@ -212,6 +212,7 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
               <button className="btn sm" onClick={() => setViewChapter(null)}>Back to now</button></div>}
             {!viewing && !d.begun && !live && <Welcome d={d} mySeat={mySeat} busy={busy} onSheet={() => setSide('party')} onBegin={note => startJob(`/stories/${p.id}/begin`, { note })} />}
             <Feed passages={shown} d={d} lastProseId={viewing ? undefined : lastProse?.id} busy={busy} onAction={onAction} onUndo={undo} readOnly={!!viewing} />
+            {!viewing && d.gameOver && !live && <GameOverCard d={d} busy={busy} reload={load} />}
             {live && !viewing && <LiveBlock live={live} host={d.host} />}
           </div>
         </div>
@@ -283,6 +284,43 @@ function Welcome(p: { d: Detail; mySeat: Seat | null; busy: boolean; onSheet: ()
   );
 }
 
+// The whole party is down. Nobody plays a round until the host picks what comes next; everyone else sees it and waits.
+function GameOverCard(p: { d: Detail; busy: boolean; reload: () => Promise<Detail | null> }) {
+  const d = p.d, go = d.gameOver!;
+  const [doing, setDoing] = useState(false);
+  const heroic = d.story.settings.death === 'heroic';
+  const STATE = { dying: 'dying', stable: 'down, stable', dead: 'dead' } as const;
+  const pick = async (what: 'fight' | 'round' | 'carry_on') => {
+    const ask = what === 'fight' ? 'Try the fight again? Every round of it comes off the page, along with what it did to the sheets, and everyone says again what they do as it begins.'
+      : what === 'round' ? 'Go back one round? The last round comes off the page, along with what it did to the sheets, and everyone says again what they do.'
+      : `Carry on with the whole party down? ${heroic ? 'The Dungeon Master writes what becomes of them: alive, but at a real cost.' : 'Death saves go on, and whoever fails three dies.'}`;
+    if (!confirm(ask)) return;
+    setDoing(true);
+    try {
+      await api(`/stories/${d.story.id}/gameover`, { body: { do: what } });
+      await p.reload();
+      toast(what === 'carry_on' ? 'Carrying on. Say what your characters do.' : 'Gone back. Say what your characters do.');
+    } catch (e) { errToast(e); } finally { setDoing(false); }
+  };
+  return (
+    <div className="gameover">
+      <div className="k">GAME OVER</div>
+      <h2>The party has fallen.</h2>
+      <div className="welcome-party">
+        {go.party.map(x => { const s = d.table.find(t => t.name === x.name); return <span key={x.name} className={`rchip ${x.state}`}><Avatar src={s?.avatar} name={x.name} size={20} /> {x.name} <span className="dim">({STATE[x.state]})</span></span>; })}
+      </div>
+      {d.host ? <>
+        <div className="row wrap" style={{ justifyContent: 'center' }}>
+          {go.fight && <button className="btn primary" disabled={doing || p.busy} onClick={() => pick('fight')}>Try the fight again</button>}
+          <button className={`btn ${go.fight ? '' : 'primary'}`} disabled={doing || p.busy} onClick={() => pick('round')}>Go back one round</button>
+          <button className="btn ghost" disabled={doing || p.busy} onClick={() => pick('carry_on')}>Carry on</button>
+        </div>
+        <p className="small muted">{go.fight ? 'Try the fight again goes back to just before it began. ' : ''}Going back takes those rounds off the page and undoes what they did to the sheets. Carry on plays the next round with everyone down: {heroic ? 'nobody dies in Heroic mode, but they pay for it.' : 'death saves go on.'}</p>
+      </> : <p className="small muted">The host decides what happens next: try the fight again, go back a round, or carry on.</p>}
+    </div>
+  );
+}
+
 // What I tell the Dungeon Master my character does this round, who else is ready, and (for the host) Go.
 function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live | null; onGo: () => void; onStop: () => void; reload: () => Promise<Detail | null>; home: Home }) {
   const d = p.d;
@@ -347,10 +385,11 @@ function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live
           {p.live ? <span className="phase" style={{ margin: 0 }}><span className="spinner" />{p.live.phase || p.live.label}…</span>
             : d.begun && active.length > 0 && <span className="dim">{readyN}/{active.length} ready{auto ? '' : ' · the host starts the round'}</span>}
           {p.live && d.host && <button className="btn sm" onClick={p.onStop}>Stop</button>}
-          {!p.live && d.host && d.begun && <button className="btn sm primary" onClick={p.onGo} disabled={p.busy || !d.conns.writer} title={auto ? 'Start the round now with whoever is ready' : 'Start the round'}>Go</button>}
+          {!p.live && d.host && d.begun && !d.gameOver && <button className="btn sm primary" onClick={p.onGo} disabled={p.busy || !d.conns.writer} title={auto ? 'Start the round now with whoever is ready' : 'Start the round'}>Go</button>}
         </div>
         {!d.conns.writer && <div className="small dim" style={{ marginBottom: 6 }}>No Dungeon Master connection is set up yet: an admin adds one under Connections.</div>}
         {!d.begun ? <div className="small muted">{p.live ? 'The Dungeon Master is opening the campaign.' : 'The first round comes after the opening scene.'}</div>
+          : d.gameOver && !p.live ? <div className="small muted">Game over: the whole party is down. {d.host ? 'Pick what happens next, above.' : 'The host decides what happens next.'}</div>
           : !me?.persona_id ? <div className="small muted">You're at the table without a character. Open the Party panel to bring one (or just watch and talk).</div> : (
           <div className="prompt-row">
             <Avatar src={me.avatar} name={name} size={32} />

@@ -78,7 +78,8 @@ export function PartyPanel(p: { d: Detail; home: Home; reload: () => Promise<any
       {d.host && <div className="rec">
         <div className="h"><b>Host</b></div>
         <div className="row wrap" style={{ marginTop: 6 }}>
-          {d.begun ? <button className="btn sm primary" disabled={p.busy || !d.conns.writer} onClick={p.onGo}>Go: play the round now</button>
+          {d.gameOver ? <span className="small muted">Game over: pick what happens next on the table.</span>
+            : d.begun ? <button className="btn sm primary" disabled={p.busy || !d.conns.writer} onClick={p.onGo}>Go: play the round now</button>
             : <span className="small muted">Not begun yet: press Begin the campaign on the table once everyone is here.</span>}
           {d.story.settings.levelling === 'milestone' && <button className="btn sm" disabled={busy} onClick={milestone}>Milestone: level the party up</button>}
         </div>

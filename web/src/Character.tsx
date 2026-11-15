@@ -4,7 +4,7 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
 import { api, buildOf, sheetBuilt, sheetOf, type Home, type Persona } from './api';
 import { AiWrite, PortraitMaker, shrinkImage, useAssistJob } from './Assist';
-import { BuildChat, type ChatLine } from './BuildChat';
+import { buildSetup, DmChat, type ChatLine } from './BuildChat';
 import { Avatar, SheetAi, SheetForm, SheetView } from './Sheet';
 import { errToast, Field, Modal, Seg, toast, useAsync } from './ui';
 
@@ -128,7 +128,7 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
       </div>}
 
       {tab === 'build' && how === 'talk' && ready && <>
-        <BuildChat lines={chat} setLines={setChat} draft={draft} onDraft={onDraft} ready={ready} built={built} />
+        <DmChat lines={chat} setLines={setChat} setup={buildSetup(() => ({ draft: draft(), built }))} onDraft={onDraft} ready={ready} />
         <div className="rec sofar">
           <div className="h"><b>So far</b><span className="grow" /><button type="button" className="btn sm ghost" onClick={() => setHow('boxes')}>Change in the boxes</button></div>
           <div className="sofar-grid">

@@ -90,13 +90,24 @@ Each player's character has a 5e character sheet, kept by the app and shown in t
 export const COMBAT = `<combat>
 Fights are played in the story, in 5e rounds. There is no separate battle screen.
 - When a fight starts, everyone in it rolls initiative: a Dexterity check, a roll line each (the characters from their own rows, the foes from the world's row, one roll per group of identical foes). Surprised creatures lose their first turn. The order goes into the scene state and holds for the whole fight.
-- Each round of the campaign is one round of combat: six seconds. Go around the initiative order once. Each character does what their player declared, as far as one turn allows: their movement, one action, one bonus action if something gives them one, and small object interactions. What doesn't fit in a turn doesn't happen, and the prose shows them running out of time. Each foe acts in its own place in the order, with real intent and tactics: they focus the weak, take cover, use their abilities, call for help, and flee or surrender when the fight is lost.
+- Each round of the campaign is one round of combat: six seconds. Go around the initiative order once. Each character does what their player declared, as far as one turn allows: their movement, one action, one bonus action if something gives them one, and small object interactions. What doesn't fit in a turn doesn't happen, and the prose shows them running out of time. Each foe acts in its own place in the order, with real intent and tactics: they take cover, use their abilities, call for help, and flee or surrender when the fight is lost.
+- Foes have sense and morale. Beasts and most monsters break and run once they are badly hurt or half their number has fallen; a pack that is losing scatters. They go for whoever is still standing and fighting, not for a character lying at 0 HP: finishing off a fallen character is only for a foe that came to kill that person in particular, and the table saw it coming.
 - Every attack and save gets a roll line. Damage = the weapon's or spell's dice + the ability modifier (a spell adds it only when it says so). Use the creature's real 5e stat block (AC, HP, attacks, special abilities), or one built to the same scale for a creature of your own.
 - After the round, stop with the fight's state clear and the party about to act again. The players answer with the next round's actions.
 - Foes are tracked in the scene state with their AC and HP ("Goblin 2, AC 15, HP 3/7"). Make it clear on the page when one goes down, flees or surrenders.
 - Not every fight is to the death: talking, fleeing, surrendering, grappling, shoving and tricks are actions too, and they get rolls.
-- Build encounters for the party's levels and the Difficulty setting, and never pull punches once a fight is on.
-</combat>`;
+- Never pull punches once a fight is on: the dice decide, and no roll or HP total is fudged. Fairness comes before the fight, in how it is built.
+</combat>
+
+<building_encounters>
+Build every fight for this party: count the characters at the table and their levels, and use the 5e XP budget.
+- Each character's thresholds (easy / medium / hard / deadly): level 1: 25 / 50 / 75 / 100. Level 2: 50 / 100 / 150 / 200. Level 3: 75 / 150 / 225 / 400. Level 4: 125 / 250 / 375 / 500. Level 5: 250 / 500 / 750 / 1,100. Higher levels by the Dungeon Master's Guide table. Add them up for the party.
+- Foes' XP by challenge rating: 0: 10. 1/8: 25. 1/4: 50. 1/2: 100. 1: 200. 2: 450. 3: 700. 4: 1,100. 5: 1,800. Add them up, then multiply by the number of foes: 1: x1, 2: x1.5, 3 to 6: x2, 7 to 10: x2.5, 11 to 14: x3, 15 or more: x4. A party of one or two characters uses the next multiplier up.
+- Every foe that takes part counts, including the ones that arrive mid-fight. Decide how many there are when the fight starts, and keep to it: no endless stream from a back room.
+- Low levels are fragile. A level-1 character has about 6 to 12 HP, so two hits put one down. Against two level-1 characters, two giant rats (CR 1/8) are a medium fight, three are hard, and four are deadly.
+- Most fights are easy or medium, a hard one comes now and then, and a deadly one only as a climax the party can see coming, with a way to avoid it or prepare for it. Work offered as simple (clearing a cellar, guarding a cart, a first job off the notice board) stays simple: its fights are easy to medium.
+- The Difficulty setting moves this, and only within these bounds.
+</building_encounters>`;
 
 const REST = (s: StorySettings) => `<rest_and_dying>
 - Short rest (an hour or more of quiet): each character may spend Hit Dice, rolling each (shared dice) + their Constitution modifier to heal; some class resources come back. Long rest (8 hours, once a day, somewhere safe enough): full HP, spell slots and most resources back, and half their total Hit Dice (at least one).
@@ -105,6 +116,7 @@ const REST = (s: StorySettings) => `<rest_and_dying>
 ${s.death === 'heroic'
     ? `- Heroic mode: no player's character dies. Three failed death saves (or a blow that would kill outright) leave them unconscious and out of the fight instead, and they wake later at 1 HP with a real cost: captured, robbed, left behind, a lasting injury, the mission lost.`
     : `- Three failed death saves: the character is dead. Death is real and it stays, unless the story offers a real way back that the party can reach and pay for (a resurrection spell, a temple, a bargain). Their player keeps their seat and can bring in a new character.`}
+- When every player's character is down at 0 HP at once, the passage ends right there, on the party's fall: no rescue out of nowhere, and no more rounds of death saves played out. The table sees it as a game over, and the host decides what comes next.
 </rest_and_dying>`;
 
 const PROGRESSION = (s: StorySettings) => `<progression>
@@ -148,9 +160,9 @@ export const DND_TOGGLES: Toggle[] = SHARED_TOGGLES.map(k => story(k, k === 'kno
 const pick = (key: string) => PICKS.find(p => p.key === key)!;
 export const DND_PICKS: PickGroup[] = [
   { key: 'difficulty', label: 'Difficulty', default: 'standard', options: [
-    { value: 'story', label: 'Story', text: `<difficulty>Story: lower every DC by 2, build easy to medium encounters, and give foes plain tactics. Failures still count, but the world is forgiving.</difficulty>` },
-    { value: 'standard', label: 'Standard', text: `<difficulty>Standard: DCs as the rules give them, and encounters medium to hard for the party's levels.</difficulty>` },
-    { value: 'deadly', label: 'Deadly', text: `<difficulty>Deadly: raise every DC by 2, build hard to deadly encounters, and let foes fight smart, in numbers and to the hilt. Healing, rest and money are scarce.</difficulty>` },
+    { value: 'story', label: 'Story', text: `<difficulty>Story: lower every DC by 2, keep encounters easy by the XP budget (medium at a climax), and give foes plain tactics. Failures still count, but the world is forgiving.</difficulty>` },
+    { value: 'standard', label: 'Standard', text: `<difficulty>Standard: DCs as the rules give them. Encounters mostly easy to medium by the XP budget, hard now and then, deadly only at a climax the party saw coming.</difficulty>` },
+    { value: 'deadly', label: 'Deadly', text: `<difficulty>Deadly: raise every DC by 2, build medium to hard encounters by the XP budget with deadly ones at climaxes, and let foes fight smart and in numbers. Healing, rest and money are scarce.</difficulty>` },
   ] },
   { key: 'death', label: 'Death', default: 'rules', options: [
     { value: 'rules', label: 'By the rules (characters can die)', text: '' },
@@ -222,7 +234,7 @@ ${intro}
 1. Where things stand: who is present, where and in what state; each character's sheet (HP, spell slots, resources, conditions, gear); in a fight, the initiative order and each foe's AC and HP from the scene state.
 2. Each player's action this round, split into separate actions, in the order they happen (initiative order in a fight; the order the plan needs otherwise). For each: does it need a roll? Which check, save or attack, with what modifier; what DC or AC (decided before looking at the die, shifted by the Difficulty setting); advantage or disadvantage? What does it spend (a slot, a resource, an item)? Characters whose players sent nothing: present, doing nothing new (Dodge in a fight).
 3. Dice: take each roller's d20s from their own row and the other dice from the shared rows, in story order, and work out each total and its result. Results stand as rolled.
-4. The world's turn: how people and foes respond, with their own roll lines when they act against the party. When a fight starts, write a stat line for each foe (AC, HP, speed, attacks with bonus and damage, special abilities) from its 5e stat block or one built to the same scale; the records keeper takes their AC and HP from these notes.
+4. The world's turn: how people and foes respond, with their own roll lines when they act against the party. When a fight starts, first settle how many foes there are and work the XP budget for this party out in a line (foes' XP x multiplier against the party's thresholds: which band is it, and does that fit the work and the Difficulty?); cut it down if it doesn't. Then write a stat line for each foe (AC, HP, speed, attacks with bonus and damage, special abilities) from its 5e stat block or one built to the same scale; the records keeper takes their AC and HP from these notes. In a fight already on, foes that are badly hurt or have lost half their number check whether they break and run. If every player's character is down at 0 HP, the passage ends on that.
 5. Knowledge check: what each person who speaks or reacts actually knows, and nothing more.
 6. How each acting character performs what their player described (their words and moves, true to the intent), so everyone who acted gets a real moment; and the stopping point: the moment that calls on the party to act. Never decide anyone's next move, and offer no options. Then Inspiration: did anyone's play this round truly earn it (rarely), and do they already have it?
 7. Settings in force: ${settingsInForce(s, DND_TOGGLES, DND_PICKS)}. Each has its block in the rules; decide what each one asks of this passage.${lewdPlan(s)}

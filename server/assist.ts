@@ -2,7 +2,7 @@
 // built from them, a level-up, a change to a sheet, and a portrait. Each runs as a job of its own, so a long reply streams and
 // a slow one isn't cut off on the way.
 import { emit, type Job } from './jobs.ts';
-import { callModel, type Msg } from './llm.ts';
+import { callModel, type Msg, type SysPart } from './llm.ts';
 import { callJson, withRoom } from './ask.ts';
 import * as R from './records.ts';
 import { BANNED_NAMES } from './rules.ts';
@@ -169,54 +169,106 @@ export function visibleReply(acc: string): string {
   return acc;
 }
 
-export function splitReply(text: string): { reply: string; draft: Record<string, any> } {
+type Clean = (j: any) => Record<string, any>;
+
+export function splitReply(text: string, clean: Clean = cleanDraft): { reply: string; draft: Record<string, any> } {
   const i = text.indexOf('<draft');
   const reply = (i >= 0 ? text.slice(0, i) : text).replace(/\r/g, '').trim();
   if (i < 0) return { reply, draft: {} };
   const inner = text.slice(i).replace(/^<draft[^>]*>/, '').replace(/<\/draft>[\s\S]*$/, '');
-  return { reply, draft: cleanDraft(extractJson(inner)) };
+  return { reply, draft: clean(extractJson(inner)) };
 }
 
 const formNow = (d: Record<string, any>, built: boolean) => DRAFT_KEYS.map(k => `${k}: ${String(d?.[k] ?? '').trim() || '(not yet)'}`).join('\n')
   + (built ? '\nsheet: built already. A change here reaches it only when the player presses Rebuild the sheet, which makes it anew; a small change can also be made on the sheet itself with Change with AI.' : '');
 
-// The chat as the model reads it: player lines and its own, alternating, starting and ending with the player.
-export function chatMessages(lines: ChatLine[], draft: Record<string, any>, built = false): Msg[] {
+// The chat as the model reads it: player lines and its own, alternating, starting and ending with the player. The last player
+// line starts with where things stand (form, already in its tag).
+export function chatMessages(lines: ChatLine[], form: string, clean: Clean = cleanDraft): Msg[] {
   const out: Msg[] = [];
   for (const l of lines.slice(-40)) {
     const role = l.role === 'me' ? 'user' : 'assistant';
     if (!out.length && role === 'assistant') continue;
-    const text = role === 'assistant' ? `${l.text.trim()}\n<draft>${JSON.stringify(cleanDraft(l.draft))}</draft>` : l.text.trim();
+    const text = role === 'assistant' ? `${l.text.trim()}\n<draft>${JSON.stringify(clean(l.draft))}</draft>` : l.text.trim();
     const last = out[out.length - 1];
     if (last?.role === role) last.content[0].text += `\n\n${text}`;
     else out.push({ role, content: [{ type: 'text', text }] });
   }
   if (out[out.length - 1]?.role !== 'user') throw new Error('Say something first.');
   const last = out[out.length - 1].content[0];
-  last.text = `<form_now note="The form as it stands, with any change the player made by hand">\n${formNow(draft, built)}\n</form_now>\n\n${last.text}\n\n(Reply, then end with the <draft> block.)`;
+  last.text = `${form}\n\n${last.text}\n\n(Reply, then end with the <draft> block.)`;
   return out;
 }
 
-export async function runCharacterChat(job: Job, o: { lines: ChatLine[]; draft: Record<string, any>; built?: boolean }) {
+// One turn of a chat with the Dungeon Master: the reply streams in, and what it notes in its draft block comes at the end.
+async function talk(job: Job, o: { system: SysPart[]; messages: Msg[]; clean: Clean; noting: string }) {
   const conn = R.defaultConn('records') ?? R.defaultConn('writer');
   if (!conn) throw new Error('No connection set up yet.');
-  const messages = chatMessages(o.lines, o.draft, !!o.built);
   // A chat wants a quick answer: little thinking, unless the connection has it off.
   const level = conn.thinking_level === 'off' ? 'off' : 'low';
   emit(job, 'phase', { phase: 'write', label: 'thinking' });
-  let acc = '', shown = 0, filling = false;
+  let acc = '', shown = 0, noting = false;
   const r = await callModel({
-    conn, system: [{ text: characterChatSystem() }], messages, thinking: level, maxTokens: withRoom(conn, 3000, level), signal: job.abort.signal,
+    conn, system: o.system, messages: o.messages, thinking: level, maxTokens: withRoom(conn, 3000, level), signal: job.abort.signal,
     onText: d => {
       acc += d;
       const v = visibleReply(acc);
       if (v.length > shown) { emit(job, 'text', { delta: v.slice(shown) }); shown = v.length; }
-      if (!filling && acc.includes('<draft')) { filling = true; emit(job, 'phase', { phase: 'write', label: 'filling in the form' }); }
+      if (!noting && acc.includes('<draft')) { noting = true; emit(job, 'phase', { phase: 'write', label: o.noting }); }
     },
   });
-  const { reply, draft } = splitReply(r.text);
+  const { reply, draft } = splitReply(r.text, o.clean);
   if (!reply) throw new Error('Nothing came back. Try again.');
   emit(job, 'assist', { reply, draft });
+}
+
+export async function runCharacterChat(job: Job, o: { lines: ChatLine[]; draft: Record<string, any>; built?: boolean }) {
+  const form = `<form_now note="The form as it stands, with any change the player made by hand">\n${formNow(o.draft, !!o.built)}\n</form_now>`;
+  await talk(job, { system: [{ text: characterChatSystem() }], messages: chatMessages(o.lines, form), clean: cleanDraft, noting: 'filling in the form' });
+}
+
+// ---------------------------------------------------------------- levelling up by talking it through
+
+export function levelChatSystem(): string {
+  return `You are the Dungeon Master of a D&D 5th Edition campaign played in text. A player's character has earned a level, and in a chat you help the player choose what they take. Many players are new to D&D: explain each choice in plain words and keep it quick.
+
+<how_you_talk>
+- Keep replies short: a few sentences, or a short list of options with one line each on what it does in play. One choice at a time.
+- In your first reply, say in a line or two what the new level gives on its own (more HP, new features, a bigger proficiency bonus or more spell slots if it does), then start on the choices this level actually asks for, in order: hit points (roll the hit die or take the average), the subclass if this is the level for it, an Ability Score Improvement or a feat, new spells or cantrips, and any other pick the class makes at this level (Fighting Style, Expertise, Metamagic, invocations...). Skip what this level doesn't ask for.
+- For each choice, offer two or three options that suit this character (their class, how they have been played, what has happened in the campaign), with your pick and why in a line. Explain a term the first time it matters.
+- Talk in the language the player writes in, the way they write it (Tagalog, Taglish, English...). Game terms stay in English.
+- Multiclassing is fine when the player asks for it: say what it gives and costs, and check its ability score requirement.
+- Homebrew is welcome, made fair for the level.
+- You can't roll dice here. The player has a 🎲 button under the chat that rolls their hit die for HP once; or they take the average, rounded up.
+- When the player says "you choose", choose, and say what you chose in a line each.
+- Plain text: no headings, no tables, no bold. A short list with "- " is fine.
+</how_you_talk>
+
+<the_choices>
+The player's message starts with <choices_now>: what is settled so far for this level. End every reply with a draft block, on its own line after what you say:
+<draft>{"choices":"Class: Rogue 2\\nHP: took the average"}</draft>
+- choices: every choice settled for this level so far, written whole, one per line, in English (the class and level gained, HP, subclass, ASI or feat, spells, other picks). {} when nothing changes.
+- Note what the player chose or agreed to, and what you chose when they asked you to. An option you only offered is not settled.
+- ready: true once every choice this level asks for is settled. In the same reply, tell them in a line to press Level up: the sheet is worked out from these choices, and they look it over before keeping it.
+</the_choices>`;
+}
+
+export function cleanLevelDraft(j: any): Record<string, any> {
+  const out: Record<string, any> = {};
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return out;
+  if (j.choices != null && typeof j.choices !== 'object') out.choices = clip(String(j.choices).replace(/\r/g, '').trim(), 4000);
+  if (j.ready === true) out.ready = true;
+  return out;
+}
+
+export async function runLevelChat(job: Job, o: { name: string; sheet: Record<string, string>; lines: ChatLine[]; choices: string; context?: string }) {
+  const level = parseInt(String(o.sheet.level ?? '1')) || 1;
+  const about = [
+    `<sheet name="${o.name}" note="As it stands, before the new level. They are level ${level} and go to level ${Math.min(20, level + 1)}.">\n${SHEET_KEYS.map(k => `${k}: ${o.sheet[k] ?? ''}`).join('\n')}\n</sheet>`,
+    o.context ? `<campaign note="What has happened to them lately, for choices that fit the story">\n${clip(o.context, 3000)}\n</campaign>` : '',
+  ].filter(Boolean).join('\n\n');
+  const form = `<choices_now>\n${o.choices.trim() || '(nothing settled yet)'}\n</choices_now>`;
+  await talk(job, { system: [{ text: levelChatSystem() }, { text: about }], messages: chatMessages(o.lines, form, cleanLevelDraft), clean: cleanLevelDraft, noting: 'noting your choices' });
 }
 
 // ---------------------------------------------------------------- character sheets

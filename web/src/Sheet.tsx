@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { hpOf, type FieldDef } from './api';
 import { useAssistJob } from './Assist';
+import { die, DmChat, type ChatLine, type ChatSetup } from './BuildChat';
+import { Seg } from './ui';
 
 export const GROUPS: { key: string; label: string }[] = [
   { key: 'who', label: 'Who' }, { key: 'vitals', label: 'Vitals' }, { key: 'stats', label: 'Abilities & skills' },
@@ -87,13 +89,41 @@ export function SheetForm(p: { fields: Record<string, string>; defs: FieldDef[];
   );
 }
 
+// A level-up talked through with the Dungeon Master: it says what the new level gives and goes through the choices it asks
+// for, noting each one; Level up then works the sheet out from them.
+const levelSetup = (path: string, current: Record<string, string>, choices: string): ChatSetup => {
+  const sides = Number(String(current.hit_dice ?? '').match(/d(\d+)/)?.[1]) || 0;
+  return {
+    path: path.replace(/\/ai$/, '/chat'),
+    body: () => ({ choices }),
+    greeting: `Level up! Say what you have in mind, or ask me to walk you through it: I'll tell you what the new level gives and go through each choice it asks for, one at a time.`,
+    starters: [
+      { label: 'Walk me through it', text: 'Walk me through this level, one choice at a time.' },
+      { label: 'You choose for me', text: 'Choose everything for this level the way a good player would for this character, and tell me what you picked.' },
+    ],
+    roll: sides ? {
+      label: `🎲 Roll HP (1d${sides})`, title: 'Your hit die for the new level’s HP. Once.', marker: '🎲 I rolled my hit die',
+      confirm: `Roll your hit die (1d${sides}) for this level's HP? You roll once and keep it. (The average is the safe choice.)`,
+      make: () => `🎲 I rolled my hit die for HP (1d${sides}): ${die(sides)}.`,
+    } : null,
+    placeholder: 'Ask about a choice, or say what you want…',
+    noting: 'noting your choices',
+  };
+};
+
 // The AI changes the sheet as the player asks (a level-up, a feat, a homebrew spell), shows what it changed, and the player keeps it or not.
 export function SheetAi(p: { path: string; kind: 'levelup' | 'edit'; defs: FieldDef[]; current: Record<string, string>; onApply: (fields: Record<string, string>, summary: string) => Promise<void> | void; onCancel?: () => void }) {
   const [request, setRequest] = useState('');
   const [result, setResult] = useState<{ fields: Record<string, string>; summary: string } | null>(null);
   const [applying, setApplying] = useState(false);
+  const [how, setHow] = useState<'talk' | 'quick'>('talk');
+  const [lines, setLines] = useState<ChatLine[]>([]);
+  const [choices, setChoices] = useState('');
+  const talking = p.kind === 'levelup' && how === 'talk';
+  const settled = lines.some(l => l.draft?.ready);
   const job = useAssistJob();
-  const go = () => job.start(p.path, { kind: p.kind, request }, { done: r => { if (r.fields) setResult({ fields: r.fields, summary: r.summary ?? '' }); } });
+  const go = (req = request) => job.start(p.path, { kind: p.kind, request: req }, { done: r => { if (r.fields) setResult({ fields: r.fields, summary: r.summary ?? '' }); } });
+  const levelUp = () => go(`The player's choices for this level, settled in a talk with the Dungeon Master. Follow them exactly:\n${choices}`);
   const changed = result ? p.defs.filter(d => result.fields[d.key] != null && String(result.fields[d.key]).trim() !== String(p.current[d.key] ?? '').trim()) : [];
   const apply = async () => {
     if (!result) return;
@@ -103,7 +133,25 @@ export function SheetAi(p: { path: string; kind: 'levelup' | 'edit'; defs: Field
   };
   return (
     <div className="ai-box">
-      {!result && <>
+      {!result && p.kind === 'levelup' && <div className="row wrap">
+        <Seg value={how} options={[{ value: 'talk', label: 'Talk it through' }, { value: 'quick', label: 'Just do it' }]} onChange={v => setHow(v as 'talk' | 'quick')} />
+        <span className="muted small">{talking ? 'The Dungeon Master explains each choice and notes what you pick.' : 'Say what you want in a line, or leave it to the AI.'}</span>
+      </div>}
+      {!result && talking && <>
+        <DmChat lines={lines} setLines={setLines} setup={levelSetup(p.path, p.current, choices)} onDraft={d => { if (typeof d.choices === 'string') setChoices(d.choices); }} ready />
+        <div className="rec sofar">
+          <div className="h"><b>Your choices</b></div>
+          <div className={`v ${choices ? '' : 'dim'}`} style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{choices || 'Nothing settled yet.'}</div>
+        </div>
+        <div className="ai-row">
+          {job.busy
+            ? <><span className="muted small"><span className="spinner" /> {job.phase || 'levelling up'}…</span><span className="grow" /><button type="button" className="btn sm" onClick={job.stop}>Stop</button></>
+            : <><span className="muted small grow">{settled ? 'Everything this level asks for is settled.' : 'Level up once your choices are settled. You look the sheet over before it is kept.'}</span>
+              {p.onCancel && <button type="button" className="btn sm" onClick={p.onCancel}>Close</button>}
+              <button type="button" className={`btn sm ${settled ? 'primary' : ''}`} onClick={levelUp} disabled={!choices.trim()}>Level up</button></>}
+        </div>
+      </>}
+      {!result && !talking && <>
         <textarea rows={3} value={request} onChange={e => setRequest(e.target.value)} disabled={job.busy}
           placeholder={p.kind === 'levelup' ? 'What to take at the new level (a subclass, a feat or ability increase, spells), or leave empty and let the AI choose well. Homebrew is fine.' : 'What to change. "Add the homebrew spell Ember Lash (1st level, ...)", "Swap Shield for Absorb Elements", "She found a +1 longsword".'} />
         <div className="ai-row">
@@ -111,7 +159,7 @@ export function SheetAi(p: { path: string; kind: 'levelup' | 'edit'; defs: Field
             ? <><span className="muted small"><span className="spinner" /> {job.phase || 'working'}…</span><span className="grow" /><button type="button" className="btn sm" onClick={job.stop}>Stop</button></>
             : <><span className="muted small grow">{p.kind === 'levelup' ? 'The AI does the 5e math: HP, slots, features, proficiency.' : 'The AI changes what you ask and anything that follows from it.'}</span>
               {p.onCancel && <button type="button" className="btn sm" onClick={p.onCancel}>Close</button>}
-              <button type="button" className="btn sm primary" onClick={go} disabled={p.kind === 'edit' && !request.trim()}>{p.kind === 'levelup' ? 'Level up' : 'Change it'}</button></>}
+              <button type="button" className="btn sm primary" onClick={() => go()} disabled={p.kind === 'edit' && !request.trim()}>{p.kind === 'levelup' ? 'Level up' : 'Change it'}</button></>}
         </div>
       </>}
       {result && <>
