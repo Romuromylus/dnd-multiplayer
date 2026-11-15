@@ -75,7 +75,7 @@ export async function toolLoop(o: LoopOpts) {
 // The plan is notes. When the model runs on into the passage itself (a scene line, a roll line or colored dialogue starting a
 // line, or a run of prose paragraphs after the last note), that part is cut off.
 export function planNotes(text: string): { notes: string; spill: string } {
-  let cut = text.search(/^[ \t]*(<(scene|roll|inspiration)>|<font color=)/m);
+  let cut = text.search(/^[ \t]*(<(scene|roll|inspiration|ruling)>|<font color=)/m);
   if (cut < 0) {
     const paras = text.split(/\n{2,}/);
     let i = paras.length;

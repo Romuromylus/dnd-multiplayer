@@ -27,6 +27,9 @@ threads; a continuity check reads each passage against them; chapters close into
   and run when a fight turns against them. When every character is down at 0 HP at once, it's **game over**: the table
   stops, and the host picks **Try the fight again** (back to just before it began, sheets and all), **Go back one
   round**, or **Carry on**.
+- **Rulings.** When the rules or a sheet cut an action short (Action Surge already spent, a spell and a weapon attack in
+  one turn, a spell the sheet doesn't have), the passage says so in a plain **Ruling** line where it happens, so a
+  player can tell a rule from a skipped move.
 - **Levelling.** XP or milestone. When a character can level up, its player presses Level up and talks it through with
   the Dungeon Master (what the new level gives, then each choice it asks for, with a real 🎲 roll for HP), or just says
   what they want. The AI does the 5e math and shows what changes before it is kept.

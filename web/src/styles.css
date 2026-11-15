@@ -325,6 +325,10 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
 .prose .roll.r-crit { border-left-color: var(--accent); background: var(--accent-soft); } .prose .roll.r-crit .res { color: var(--accent); }
 .prose .roll.r-fail { border-left-color: var(--danger); } .prose .roll.r-fail .res { color: var(--danger); }
 .prose .roll.r-fumble { border-left-color: var(--danger); background: var(--danger-soft); } .prose .roll.r-fumble .res { color: var(--danger); }
+/* A ruling: the Dungeon Master telling a player, out of the story, what the rules or their sheet kept from happening. */
+.prose .ruling-line { display: flex; align-items: baseline; gap: 9px; font-family: var(--sans); font-size: 13.5px; line-height: 1.45; color: var(--text); border: 1px dashed var(--line2); border-left: 3px solid var(--muted); border-radius: 7px; padding: 6px 12px; margin: 10px 0; background: var(--panel); text-indent: 0; }
+.prose .ruling-line .tag { flex: none; font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.prose .ruling-line b { font-weight: 700; }
 /* An Inspiration award: the Dungeon Master's nod to a player, set apart from the story like a roll. */
 .prose .insp-line { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--text); border: 1px solid var(--accent); border-radius: 7px; padding: 6px 12px; margin: 14px 0 6px; background: var(--accent-soft); text-indent: 0; }
 .prose .insp-line .star { color: var(--accent); font-size: 15px; }

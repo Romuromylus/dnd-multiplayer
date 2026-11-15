@@ -257,7 +257,7 @@ export function enqueueSceneArt(story: R.Story, passageId: number, redo = false)
     ...party.map(m => `${m.name}: ${clip(m.card?.fields?.look || R.getPersona(m.personaId)?.look || '', 260)}`),
     ...state.present.slice(0, 4).map(x => { const c = R.findCard(story.id, x.name); return `${x.name}${c?.fields?.appearance ? `: ${clip(c.fields.appearance, 200)}` : ''}`; }),
   ].filter(Boolean);
-  const moment = clip(p.text.replace(/<roll>[^<]*<\/roll>/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(-900), 900);
+  const moment = clip(p.text.replace(/<(roll|ruling)>[^<]*<\/\1>/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(-900), 900);
   const prompt = `${styleOf(story.settings)}. A wide illustration of a scene from a fantasy adventure. The place: ${sc?.place || state.place || 'where the story stands'}${sc?.story_time || state.story_time ? `, ${sc?.story_time || state.story_time}` : ''}${sc?.weather || state.weather ? `, ${sc?.weather || state.weather}` : ''}. The moment: ${moment} The people in it: ${people.join('; ') || 'nobody in particular'}. Draw the moment as the text gives it. No text, no lettering, no speech bubbles, no frame.`;
   const refs = [...party.filter(m => R.getPersona(m.personaId)?.avatar).map(m => `avatar:${m.personaId}`), ...state.present.map(x => portraitKey(x.name))];
   const key = sceneKey(passageId);

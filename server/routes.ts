@@ -1132,6 +1132,7 @@ function mdText(t: string) {
     .replace(/<\/?font[^>]*>/g, '')
     .replace(/<scene>([^<]*)<\/scene>/g, (_, x: string) => { const [place, ...when] = x.split('|').map(v => v.trim()); return `**${place}**${when.filter(Boolean).length ? ` · *${when.filter(Boolean).join(' · ')}*` : ''}`; })
     .replace(/<roll>([^<]*)<\/roll>/g, (_, x: string) => { const [who, check, what, die, mod, total, vs, ...res] = x.split('|').map(v => v.trim()); return `> **${who}**, ${check}: ${what}. d20 ${die} ${mod} = ${total} vs ${vs}: **${res.join(' | ')}**`; })
+    .replace(/<ruling>([^<]*)<\/ruling>/g, (_, x: string) => { const [who, ...said] = x.split('|').map(v => v.trim()); return said.length ? `> *Ruling, ${who}:* ${said.join(' ')}` : `> *Ruling:* ${who}`; })
     .replace(/<action by="([^"]*)">\s*([\s\S]*?)\s*<\/action>/g, (_, who: string, text: string) => `> *${who}:* ${text.replace(/\n+/g, ' ')}`);
 }
 api.get('/stories/:id/export', c => {
