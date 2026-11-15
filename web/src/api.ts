@@ -78,6 +78,12 @@ export function savePrefs(key: string, value: any) {
   clearTimeout(prefsTimer);
   prefsTimer = window.setTimeout(() => { api('/me', { method: 'PUT', body: { prefs: prefsNow } }).catch(() => { /* kept on this page until the next save */ }); }, 600);
 }
+// Saved at once, for a preference the player is waiting to hear was kept.
+export async function savePrefsNow(key: string, value: any) {
+  clearTimeout(prefsTimer);
+  prefsNow = { ...prefsNow, [key]: value };
+  await api('/me', { method: 'PUT', body: { prefs: prefsNow } });
+}
 
 export const JOB_EVENTS = ['start', 'phase', 'tool', 'thinking', 'text', 'text_reset', 'plan', 'passage', 'removed', 'check', 'changes', 'notice', 'error', 'usage',
   'summary_start', 'summary', 'chapter_closed', 'arc', 'fix_start', 'fixed', 'assist', 'end'] as const;

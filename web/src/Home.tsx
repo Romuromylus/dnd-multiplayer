@@ -1,6 +1,6 @@
 // Home: your campaigns, joining one by its code, your characters, the shared worlds, and (for an admin) the server's setup.
 import { useState } from 'react';
-import { ago, api, hasSheet, sheetOf, type Home, type Persona, type Settings, type User } from './api';
+import { ago, api, hasSheet, knownPrefs, sheetOf, type Home, type Persona, type Settings, type User } from './api';
 import { AiWrite, WorldShelf, WorldsModal } from './Assist';
 import { CharacterModal } from './Character';
 import { AccountModal, ConnectionsModal, PlayersModal } from './Admin';
@@ -103,13 +103,23 @@ export function HomeView(p: { home: Home; reload: () => Promise<void>; open: (id
   );
 }
 
-export function defaultSettings(h: Home): Settings {
+// The settings every campaign starts from unless its host saved their own.
+export function standardSettings(h: Home): Settings {
   const s: Settings = { toggles: {} };
   for (const pk of h.schema.picks) s[pk.key] = pk.default;
   for (const t of h.schema.toggles) s.toggles[t.key] = t.default;
   for (const [k, d] of Object.entries({ ...h.schema.inkwell, ...h.schema.table })) s[k] = d.default;
   s.art_style = 'painterly';
   return s;
+}
+// A host's saved defaults (Campaign settings, Save as my defaults), laid over the standard ones so a setting added since still has a value.
+export const savedDefaults = (h: Home): Settings | null => {
+  const mine = knownPrefs().campaign_defaults ?? h.user.prefs?.campaign_defaults;
+  return mine && typeof mine === 'object' ? mine : null;
+};
+export function defaultSettings(h: Home): Settings {
+  const base = standardSettings(h), mine = savedDefaults(h);
+  return mine ? { ...base, ...mine, toggles: { ...base.toggles, ...(mine.toggles ?? {}) } } : base;
 }
 
 function NewCampaignModal(p: { home: Home; onClose: () => void; reload: () => Promise<void>; onCreated: (id: number) => void }) {
@@ -144,6 +154,10 @@ function NewCampaignModal(p: { home: Home; onClose: () => void; reload: () => Pr
           {h.characters.map(c => <option key={c.id} value={c.id} disabled={!hasSheet(c)}>{c.name}{hasSheet(c) ? '' : ' (no sheet yet)'}</option>)}
         </select>
       </Field>
+      {savedDefaults(h) && <div className="ai-row">
+        <span className="muted small grow">These start from your saved defaults.</span>
+        <button type="button" className="btn sm ghost" onClick={() => setSt(() => standardSettings(h))}>Use the standard settings</button>
+      </div>}
       <CampaignSettingsFields home={h} st={st} setSt={setSt} short={!more} />
       {!more && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setMore(true)}>More settings…</button>}
     </Modal>

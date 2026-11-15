@@ -177,7 +177,7 @@ api.put('/me', async c => {
   if (b.display_name != null) db.prepare('update users set display_name = ?, updated_at = ? where id = ?').run(str(b.display_name, 40).trim(), now(), u.id);
   if (b.prefs && typeof b.prefs === 'object') {
     const json = JSON.stringify(b.prefs);
-    if (json.length > 8000) return bad(c, 'Preferences too large.');
+    if (json.length > 24000) return bad(c, 'Preferences too large.');
     db.prepare('update users set prefs = ?, updated_at = ? where id = ?').run(json, now(), u.id);
   }
   if (b.new_password != null) {

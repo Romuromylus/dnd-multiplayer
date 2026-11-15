@@ -57,9 +57,6 @@ function PassageView(p: { ps: Passage; d: Detail; inline: boolean; isLast: boole
   const act = (a: string) => () => p.onAction(a, ps);
   return (
     <div className={`passage ${reading ? 'reading' : ''}`} data-pid={ps.id}>
-      {art && (art.url ? <a className="scene-art" href={art.full ?? art.url} target="_blank" rel="noreferrer"><img src={art.url} alt="" loading="lazy" /></a>
-        : art.status === 'error' ? <div className="scene-art empty small dim">The picture failed{art.error ? `: ${art.error}` : ''}.</div>
-          : <div className="scene-art empty small dim"><span className="spinner" /> painting the scene…</div>)}
       {host && t && (t.plan || lookups > 0 || t.usage?.output) ? (
         <div className="meta-line">
           <button className="link" onClick={() => setMeta(!meta)}>{meta ? '▾' : '▸'} {lookups ? `${lookups} lookup${lookups > 1 ? 's' : ''}` : 'no lookups'}{t.plan ? ' · notes' : ''}{t.dice ? ' · dice' : ''}</button>
@@ -77,6 +74,10 @@ function PassageView(p: { ps: Passage; d: Detail; inline: boolean; isLast: boole
         </div>
       )}
       <div className="prose" dangerouslySetInnerHTML={{ __html: html }} />
+      {/* The scene's picture comes after its words: read first, then see it. */}
+      {art && (art.url ? <a className="scene-art" href={art.full ?? art.url} target="_blank" rel="noreferrer"><img src={art.url} alt="" loading="lazy" /></a>
+        : art.status === 'error' ? <div className="scene-art empty small dim">The picture failed{art.error ? `: ${art.error}` : ''}.</div>
+          : <div className="scene-art empty small dim"><span className="spinner" /> painting the scene…</div>)}
       {p.inline && ps.cards && ps.cards.length > 0 && <InlineCards cards={ps.cards} d={p.d} />}
       {ps.cut ? <div className="passage-foot"><span className="chip warn">cut off</span>{p.isLast && host && <button className="btn sm primary" disabled={p.busy} onClick={act('continue')}>Continue</button>}</div> : null}
       {host && ps.records_status === 'hold' && (

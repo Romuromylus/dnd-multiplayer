@@ -1,6 +1,6 @@
 // The host's dialogs: the campaign's settings, a correction, a hand edit, a passage's history, a chapter's summary.
 import { useEffect, useState } from 'react';
-import { api, type Chapter, type Detail, type Home, type Passage, type Settings } from './api';
+import { api, savePrefsNow, type Chapter, type Detail, type Home, type Passage, type Settings } from './api';
 import { AiWrite, WorldShelf } from './Assist';
 import { CampaignSettingsFields } from './Home';
 import { renderProse } from './render';
@@ -23,6 +23,11 @@ export function SettingsModal(p: { d: Detail; home: Home; onClose: () => void; o
   const newCode = () => run(async () => {
     if (!confirm('Make a new invite code? The old one stops working (players already at the table stay).')) return;
     await api(`/stories/${s.id}`, { method: 'PUT', body: { new_code: true } }); p.onSaved(); toast('New invite code made.');
+  });
+  // The settings as they are in this window (saved to the campaign or not) become where the host's next campaigns start.
+  const makeDefault = () => run(async () => {
+    await savePrefsNow('campaign_defaults', st);
+    toast('Saved as your defaults: your next campaigns start with these settings.');
   });
   const archive = () => run(async () => { await api(`/stories/${s.id}`, { method: 'PUT', body: { archived: !s.archived } }); p.onSaved(); p.onClose(); });
   const del = () => run(async () => {
@@ -47,6 +52,10 @@ export function SettingsModal(p: { d: Detail; home: Home; onClose: () => void; o
       <AiWrite kind="world" value={bible} onChange={setBible} ready={!!p.d.conns.writer} what="world brief" />
       <div className="row wrap"><span className="small">Invite code <b className="mono">{s.invite_code}</b></span><button className="btn sm ghost" onClick={newCode} disabled={busy}>New code</button></div>
       <CampaignSettingsFields home={p.home} st={st} setSt={setSt} />
+      <div className="ai-row">
+        <span className="muted small grow">Like these? New campaigns you start can begin with them.</span>
+        <button type="button" className="btn sm" onClick={makeDefault} disabled={busy}>Save as my defaults</button>
+      </div>
       <div className="section-title">Models</div>
       <div className="grid2">
         <Field label="Dungeon Master"><select value={writer} onChange={e => setWriter(e.target.value ? Number(e.target.value) : '')}><option value="">Default ({defName('writer')})</option>{conns.map(c => <option key={c.id} value={c.id}>{c.name} · {c.model}</option>)}</select></Field>
