@@ -176,7 +176,10 @@ api.put('/me', async c => {
   const u = A.me(c);
   if (b.display_name != null) db.prepare('update users set display_name = ?, updated_at = ? where id = ?').run(str(b.display_name, 40).trim(), now(), u.id);
   if (b.prefs && typeof b.prefs === 'object') {
-    const json = JSON.stringify(b.prefs);
+    // Laid over what is kept, key by key: a page opened before another device saved something sends an older copy, and
+    // it shouldn't wipe what it never knew about (saved campaign defaults, say).
+    const kept = parseJson<Record<string, any>>((db.prepare('select prefs from users where id = ?').get(u.id) as { prefs: string } | undefined)?.prefs, {});
+    const json = JSON.stringify({ ...kept, ...b.prefs });
     if (json.length > 24000) return bad(c, 'Preferences too large.');
     db.prepare('update users set prefs = ?, updated_at = ? where id = ?').run(json, now(), u.id);
   }
