@@ -364,6 +364,7 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
 /* ---------------------------------------------------------------- the table (D&D) */
 .badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 700 9.5px/15px var(--mono); padding: 0 3px; }
 .icon-btn { position: relative; }
+.icon-btn .dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 99px; background: var(--accent); }
 
 /* sign-in */
 .auth { min-height: 100dvh; display: grid; place-items: center; padding: 16px; }

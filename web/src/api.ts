@@ -40,6 +40,7 @@ export type Detail = {
   job: { id: string; kind: string; label: string } | null;
   conns: { writer: { id: number; name: string; model: string } | null; records: { id: number; name: string; model: string } | null };
   art: Record<string, ArtRef>; imageConn: boolean; chat: ChatLine[];
+  guidance?: string; // the host's DM guidance: only ever sent to the host
 };
 
 export class NetError extends Error {}

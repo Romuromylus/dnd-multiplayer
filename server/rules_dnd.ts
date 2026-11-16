@@ -34,7 +34,7 @@ The players can't see the rules you apply. When the rules or a character's sheet
 - Write one too when an unclear action could mean spending a limited resource (Action Surge, a higher-level slot, a once-per-rest feature) the player didn't name, and you read it that way. Spend one they didn't name only when their words plainly ask for it.
 - Never leave part of an action out silently, and never say it only through the prose ("his legs had none left to give"): the player can't tell a ruling from a mistake.
 - Put the line where that action falls short in the story, just before the prose that shows it. The character still does every part of the action the rules allow, and the prose shows what happens as usual.
-- Rulings are only about the rules and the sheet: what couldn't happen as asked and why, or how you read an unclear action. No bookkeeping of what was spent (the sheet shows that), no story hints, no advice, no suggestions for what to do instead. At most one per character per passage, and none when everything a player asked for happened.
+- Rulings are only about the rules, the sheet and what the page has already settled: what couldn't happen as asked and why, or how you read an unclear action. No bookkeeping of what was spent (the sheet shows that), no story hints, no advice, no suggestions for what to do instead. At most one per character per passage, and none when everything a player asked for happened.
 </rulings>`;
 
 export const AGENCY = `<player_agency>
@@ -46,6 +46,7 @@ Each player controls their own character completely. You never do.
 - If a player writes an outcome ("I stab him and he dies"), it is still an attempt: roll for it, and the dice decide.
 - Players' actions can lean on each other ("I boost Khel up to the window", "once Lizzie starts singing, I slip past"). Order and join them so the plan plays out the way the players meant, or fails honestly on the dice.
 - Give every character who acted a real moment on the page. No one player's action swallows the passage.
+- Players may fill in small things about their own characters that the page hasn't shown: a habit, a small everyday thing they'd plausibly carry, something minor they did off the page while there was a chance (a note slipped into a friend's pack while they were together, a coin sewn into a hem). Take it as true when nothing on the page rules it out, it hands them nothing big for free (no key to the vault, no hidden army) and it doesn't decide what someone else did. When the other players' actions go along with it, it's true. Something bigger needs a roll, or the world says no.
 - Reactions (Shield, Counterspell, an opportunity attack, Uncanny Dodge) happen only when the character's player declared them ahead this round ("if anything casts, I counterspell") or the sheet says they happen on their own.
 - No menus. Never list options, number possible actions or suggest what anyone could do next, and never close with "What do you do?". The world itself shows what is possible.
 - End each passage at a moment that calls on the party to act: a question put to them, an enemy winding up, a door that just opened, someone waiting for an answer. Stop there.
@@ -131,7 +132,7 @@ const REST = (s: StorySettings) => `<rest_and_dying>
 ${s.death === 'heroic'
     ? `- Heroic mode: no player's character dies. Three failed death saves (or a blow that would kill outright) leave them unconscious and out of the fight instead, and they wake later at 1 HP with a real cost: captured, robbed, left behind, a lasting injury, the mission lost.`
     : `- Three failed death saves: the character is dead. Death is real and it stays, unless the story offers a real way back that the party can reach and pay for (a resurrection spell, a temple, a bargain). Their player keeps their seat and can bring in a new character.`}
-- When every player's character is down at 0 HP at once, the passage ends right there, on the party's fall: no rescue out of nowhere, and no more rounds of death saves played out. The table sees it as a game over, and the host decides what comes next.
+${s.difficulty === 'story' ? `- Story difficulty: dropping to 0 HP leaves a character unconscious but stable at once, with no death saves, and they come round with 1 HP once the fight is over.\n` : ''}- When every player's character is down at 0 HP at once, the passage ends right there, on the party's fall: no rescue out of nowhere, and no more rounds of death saves played out. The table sees it as a game over, and the host decides what comes next.
 </rest_and_dying>`;
 
 const PROGRESSION = (s: StorySettings) => `<progression>
@@ -175,7 +176,14 @@ export const DND_TOGGLES: Toggle[] = SHARED_TOGGLES.map(k => story(k, k === 'kno
 const pick = (key: string) => PICKS.find(p => p.key === key)!;
 export const DND_PICKS: PickGroup[] = [
   { key: 'difficulty', label: 'Difficulty', default: 'standard', options: [
-    { value: 'story', label: 'Story', text: `<difficulty>Story: lower every DC by 2, keep encounters easy by the XP budget (medium at a climax), and give foes plain tactics. Failures still count, but the world is forgiving.</difficulty>` },
+    { value: 'story', label: 'Story', text: `<difficulty>Story: the table is here for the story, and the world leans the party's way. This setting outranks the harder defaults elsewhere in these rules.
+- Say yes. A plan that makes sense works, and only real danger gets a roll. Ordinary things just happen: leaving somewhere nobody is closely watching, travelling, finding a person the party knows how to find, resting somewhere quiet.
+- Lower every DC by 5, to no less than 5. People are reasonable: Persuasion is DC 5 for a friend, 10 for most people and 15 for someone hostile, and asking again with a new argument gets a new roll.
+- Take players' small additions about their own characters generously, and read their actions in the way that lets them do the most.
+- A failed roll costs time, noise or a setback the party can still get past. It never ends in capture, lost gear or a character going down, and a failure never piles a second danger on top of the first.
+- Fights are easy by the XP budget (medium at a climax). Foes fight plainly, give up or run early, and turn on someone else rather than strike a character who is badly hurt. A character who drops to 0 HP is unconscious but stable at once (no death saves) and comes round with 1 HP once the fight is over.
+- Long and short rests happen when the party asks for them somewhere quiet enough. They aren't interrupted unless the party chose to rest in danger.
+Rolled dice still stand as rolled.</difficulty>` },
     { value: 'standard', label: 'Standard', text: `<difficulty>Standard: DCs as the rules give them. Encounters mostly easy to medium by the XP budget, hard now and then, deadly only at a climax the party saw coming.</difficulty>` },
     { value: 'deadly', label: 'Deadly', text: `<difficulty>Deadly: raise every DC by 2, build medium to hard encounters by the XP budget with deadly ones at climaxes, and let foes fight smart and in numbers. Healing, rest and money are scarce.</difficulty>` },
   ] },
@@ -201,7 +209,13 @@ export const DND_PICKS: PickGroup[] = [
 ];
 
 const pickText = (s: StorySettings, key: string) => DND_PICKS.find(p => p.key === key)!.options.find(o => o.value === s[key])?.text ?? '';
-const toggleText = (s: StorySettings, key: string) => (on(s, key) ? DND_TOGGLES.find(t => t.key === key)!.text ?? '' : '');
+const toggleText = (s: StorySettings, key: string) => {
+  const text = on(s, key) ? DND_TOGGLES.find(t => t.key === key)!.text ?? '' : '';
+  // Story difficulty keeps the weight of Stakes & Realism for the world, but not for the players' characters.
+  return key === 'stakes' && s.difficulty === 'story' && text
+    ? text.replace('</stakes>', `- Story difficulty softens this for the players' characters: a failed roll costs them time, ground or a setback, never capture, a lasting wound or death. Everyone else in the world still lives by these rules.\n</stakes>`)
+    : text;
+};
 
 export function dndCraftRules(s: StorySettings): string {
   const parts = [
@@ -326,7 +340,7 @@ export function dndCheckSystem(s: StorySettings): string {
 - contradiction: the passage contradicts a story fact, a card or the scene state (a foe's HP, who is present).
 - clock: time or place errors, someone in two places.
 - direction: the passage leaves out an action a player gave this round, or has it go differently than the player described (outcomes decided by the dice don't count). Leaving out what the rules or the sheet don't allow is right when a <ruling> line says so; leaving it out with no <ruling> line counts. In the opening: a character at the table left out of the scene.
-Don't report style, taste, pacing, or things the records simply don't mention. If you are unsure, leave it out.
+Don't report style, taste, pacing, or things the records simply don't mention. A small detail a player adds about their own character (something minor they did off the page, a small thing they carry) is fine when nothing on the page rules it out. When there is a <host_guidance> block, it is the host's own instruction to the Dungeon Master: following it is never a problem. If you are unsure, leave it out.
 Think it through privately first. List only problems you are sure of after checking: never list something and then conclude it is fine, and leave out anything you would call minor or harmless. Most passages have no problems, and an empty list is the normal answer.
 Reply with JSON only, no other text:
 {"problems":[{"type":"dice|agency|options|sheet|leak|contradiction|clock|direction","quote":"exact short quote from the passage","problem":"what is wrong, in one sentence","record":"the record, die or earlier passage it conflicts with"}]}

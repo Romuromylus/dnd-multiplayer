@@ -8,14 +8,14 @@ import { Feed, LiveBlock, type Live } from './Feed';
 import { PartyPanel, SheetModal } from './Party';
 import { RecordsPanel } from './Records';
 import { ChatPanel } from './Chat';
-import { CorrectionModal, EditPassageModal, SettingsModal, SummaryModal, VersionsModal } from './TableModals';
+import { CorrectionModal, EditPassageModal, GuidanceModal, SettingsModal, SummaryModal, VersionsModal } from './TableModals';
 import { copyReadingText } from './render';
 import { Avatar } from './Sheet';
 import { errToast, toast } from './ui';
 
 type Side = 'party' | 'records' | 'chat';
 type ModalState = null
-  | { kind: 'settings' } | { kind: 'sheet'; personaId: number } | { kind: 'fix'; passage: Passage; isLast: boolean }
+  | { kind: 'settings' } | { kind: 'guidance' } | { kind: 'sheet'; personaId: number } | { kind: 'fix'; passage: Passage; isLast: boolean }
   | { kind: 'edit'; passage: Passage } | { kind: 'versions'; passage: Passage } | { kind: 'summary'; chapterId: number };
 
 export function TableView(p: { id: number; home: Home; reloadHome: () => Promise<void>; onBack: () => void }) {
@@ -197,6 +197,7 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
           <button className={`icon-btn ${side === 'party' ? 'on' : ''}`} onClick={() => setSide(side === 'party' ? null : 'party')} title="The party" aria-label="The party">☗</button>
           <button className={`icon-btn ${side === 'chat' ? 'on' : ''}`} onClick={() => setSide(side === 'chat' ? null : 'chat')} title="Table talk" aria-label="Table talk">💬{unread > 0 && <span className="badge">{unread}</span>}</button>
           <button className={`icon-btn ${side === 'records' ? 'on' : ''}`} onClick={() => setSide(side === 'records' ? null : 'records')} title="Records: people, threads, chapters" aria-label="Records">☰</button>
+          {d.host && <button className="icon-btn" onClick={() => setModal({ kind: 'guidance' })} title={d.guidance ? 'DM guidance (on; only you see it)' : 'DM guidance (only you see it)'} aria-label="DM guidance">📜{d.guidance && <span className="dot" />}</button>}
           {d.host && <button className="icon-btn" onClick={() => setModal({ kind: 'settings' })} title="Campaign settings" aria-label="Settings">⚙</button>}
         </header>
 
@@ -239,6 +240,7 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
       </aside>}
 
       {modal?.kind === 'settings' && <SettingsModal d={d} home={p.home} onClose={() => setModal(null)} onSaved={load} onDeleted={() => { p.reloadHome(); p.onBack(); }} />}
+      {modal?.kind === 'guidance' && <GuidanceModal d={d} onClose={() => setModal(null)} onSaved={load} />}
       {modal?.kind === 'sheet' && <SheetModal d={d} home={p.home} personaId={modal.personaId} onClose={() => setModal(null)} reload={load} />}
       {modal?.kind === 'fix' && <CorrectionModal storyId={p.id} passage={modal.passage} isLast={modal.isLast} onClose={() => setModal(null)} onJob={id => follow(id)} />}
       {modal?.kind === 'edit' && <EditPassageModal passage={modal.passage} onClose={() => setModal(null)} onSaved={load} onJob={id => follow(id)} />}

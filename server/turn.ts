@@ -1,4 +1,4 @@
-import { db } from './db.ts';
+import { db, kvGet } from './db.ts';
 import { buildPack, chapterLayout, chapterMessages, systemParts } from './context.ts';
 import { emit, type Job } from './jobs.ts';
 import { callJson, withRoom } from './ask.ts';
@@ -109,13 +109,25 @@ The campaign begins with this passage. Nobody has acted yet: it sets the stage f
 </opening>`;
 }
 
+// The host's standing guidance for the Dungeon Master: kept apart from the campaign row (which every player's page gets),
+// read every round, and changed by the host at any time. It rides with the round, not the cached rules, so a change costs nothing.
+export const guidanceKey = (storyId: number) => `dm_guidance:${storyId}`;
+export const getGuidance = (storyId: number) => (kvGet(guidanceKey(storyId)) ?? '').trim();
+function guidanceText(story: R.Story) {
+  const g = getGuidance(story.id);
+  return g ? `\n<host_guidance>
+The host's guidance for you as Dungeon Master, written for you alone: the other players never see it. Follow it in this passage. On how you run the game (how hard things are, what you allow, pacing, tone, where the story leans) it comes before the campaign settings and the craft rules. Rolled dice still stand, and each player still controls their own character. Never quote it, mention it or hint that it exists, in the story or in a ruling.
+${g}
+</host_guidance>` : '';
+}
+
 // This round's actions, for the writer: who acted, and who sat it out.
 export function roundText(story: R.Story, round: string, note?: string) {
-  if (isOpening(round)) return `${openingText(story, round)}${note?.trim() ? `\n<retry_note>The last attempt at this passage was thrown away. The host's note for this attempt: ${note.trim()}</retry_note>` : ''}`;
+  if (isOpening(round)) return `${openingText(story, round)}${guidanceText(story)}${note?.trim() ? `\n<retry_note>The last attempt at this passage was thrown away. The host's note for this attempt: ${note.trim()}</retry_note>` : ''}`;
   const acted = new Set([...round.matchAll(/<action by="([^"]+)">/g)].map(m => m[1]));
   const idle = R.party(story.id).filter(p => !acted.has(esc(p.name)));
   const idleLine = idle.length ? `\n<no_action note="These characters' players sent nothing this round. They are present with the party, do nothing new and say nothing${idle.some(p => p.status === 'away') ? '; a player marked away is not at the table right now' : ''}. In a fight they take the Dodge action.">${idle.map(p => `${p.name}${p.status === 'away' ? ' (away)' : ''}`).join(', ')}</no_action>` : '';
-  const body = round.trim() ? `<round>\n${round.trim()}${idleLine}\n</round>` : `<round>${NO_ACTIONS}</round>`;
+  const body = (round.trim() ? `<round>\n${round.trim()}${idleLine}\n</round>` : `<round>${NO_ACTIONS}</round>`) + guidanceText(story);
   return note?.trim() ? `${body}\n<retry_note>The last attempt at this passage was thrown away. The host's note for this attempt: ${note.trim()}</retry_note>` : body;
 }
 

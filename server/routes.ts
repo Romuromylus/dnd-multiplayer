@@ -9,7 +9,7 @@ import * as R from './records.ts';
 import { modeSchema, NPC, normalizeSettings, defaultSettings, SHEET, SHEET_KEYS } from './modes.ts';
 import { XP_LEVELS } from './rules_dnd.ts';
 import { closeChapter, rollupArc, summarizeChapter } from './chapters.ts';
-import { ensureSheets, flushPendingRecords, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
+import { ensureSheets, flushPendingRecords, getGuidance, guidanceKey, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
 import { ART_WIDTHS, artMap, artWatchers, assetPath, deleteAsset, deleteStoryImages, enqueuePortraits, enqueueSceneArt, getAsset, imageConn, pump, redoAsset, sceneKey, sizedFile } from './art.ts';
 import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runLevelChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
 import { voiceApi } from './voice.ts';
@@ -539,6 +539,7 @@ api.get('/stories/:id', c => {
   return c.json({
     story: { ...story, invite_code: story.invite_code },
     host, me: A.me(c).id, begun: begun(story.id), gameOver: gameOver(story.id),
+    ...(host ? { guidance: getGuidance(story.id) } : {}),
     chapters: db.prepare('select id, number, title, status, summary, summary_status, arc_id, closed_at from chapters where story_id = ? order by number').all(story.id),
     openChapterId: open.id,
     passages: R.chapterPassages(open.id).map(p => passageView(p, host)), scenes: scenesFor(open.id), scene: R.getSceneState(story.id),
@@ -576,8 +577,19 @@ api.delete('/stories/:id', c => {
   if (runningJob(story.id)) return bad(c, 'Wait for the running job to finish.', 409);
   deleteStoryImages(story.id);
   db.prepare('delete from stories where id = ?').run(story.id);
+  db.prepare('delete from app_kv where key = ?').run(guidanceKey(story.id));
   broadcast(story.id, 'deleted', {});
   return c.json({ ok: true });
+});
+
+// The host's guidance for the Dungeon Master: only the host reads or writes it, and it never goes out to the players' pages.
+api.put('/stories/:id/guidance', async c => {
+  const story = campaign(c, { host: true }); if (failed(story)) return story;
+  const b = await c.req.json().catch(() => ({}));
+  const text = str(b.text, 4000).trim();
+  if (text) db.prepare('insert into app_kv(key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(guidanceKey(story.id), text);
+  else db.prepare('delete from app_kv where key = ?').run(guidanceKey(story.id));
+  return c.json({ guidance: text });
 });
 
 // A player's own seat: which character they bring, and whether they are here or away. The host can change anyone's, or remove them.

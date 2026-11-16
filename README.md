@@ -36,6 +36,12 @@ threads; a continuity check reads each passage against them; chapters close into
 - **The host** can retry, correct or edit a passage, see the Dungeon Master's notes and dice, keep or undo record
   changes, close chapters, and change the campaign's settings. Players never see the Dungeon Master's notes, the dice
   tray, the secrets ledger or anyone's hidden backstory.
+- **DM guidance** (📜, host only): standing instructions the Dungeon Master reads every round until the host changes
+  them (how hard to go, what to allow, where to steer). The server sends it to the host alone, and the passage never
+  mentions it.
+- **Difficulty.** Story says yes to sensible plans, takes DCs down by 5, turns failures into setbacks rather than capture
+  or knockouts, keeps fights easy, and leaves a character at 0 HP stable (no death saves). Standard and Deadly play by
+  the book. At every difficulty, players can fill in small off-page details about their own characters.
 - **Listen.** Each passage can be read aloud by the Kokoro narrator, on the server, free.
 
 ## Running

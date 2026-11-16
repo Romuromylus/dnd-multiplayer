@@ -65,6 +65,31 @@ export function SettingsModal(p: { d: Detail; home: Home; onClose: () => void; o
   );
 }
 
+// The host's standing guidance for the Dungeon Master. The server only ever sends it to the host, and the DM never mentions it.
+export function GuidanceModal(p: { d: Detail; onClose: () => void; onSaved: () => void }) {
+  const was = (p.d.guidance ?? '').trim();
+  const [text, setText] = useState(p.d.guidance ?? '');
+  const { busy, run } = useAsync();
+  const save = (t: string) => run(async () => {
+    await api(`/stories/${p.d.story.id}/guidance`, { method: 'PUT', body: { text: t } });
+    toast(t.trim() ? 'Guidance saved. The Dungeon Master follows it from the next round on.' : 'Guidance cleared.');
+    p.onSaved(); p.onClose();
+  });
+  return (
+    <Modal title="DM guidance" onClose={p.onClose} foot={<>
+      {was && <button className="btn ghost" onClick={() => save('')} disabled={busy}>Clear</button>}
+      <span className="grow" />
+      <button className="btn ghost" onClick={p.onClose}>Cancel</button>
+      <button className="btn primary" onClick={() => save(text)} disabled={busy || text.trim() === was}>Save</button>
+    </>}>
+      <div className="muted small">Only you and the Dungeon Master see this. It reads it every round and follows it until you change it: how hard to go on the table, what to allow, where to steer the story. The dice still decide, and each player still plays their own character.</div>
+      <Field label="Your guidance" hint={`${text.length}/4000`}>
+        <textarea rows={8} autoFocus maxLength={4000} value={text} onChange={e => setText(e.target.value)} placeholder={'Go easy on us: we are here for the story.\nIf someone\'s escape plan makes any sense, let it work.\nKeep fights short, one per session at most.'} />
+      </Field>
+    </Modal>
+  );
+}
+
 export function CorrectionModal(p: { storyId: number; passage: Passage; isLast: boolean; onClose: () => void; onJob: (id: string) => void }) {
   const [text, setText] = useState('');
   const { busy, run } = useAsync();
