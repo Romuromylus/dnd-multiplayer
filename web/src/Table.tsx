@@ -1,7 +1,7 @@
 // The table: the campaign as it is played. Each player says what their character does and marks themselves ready; the
 // Dungeon Master writes the round once everyone is (or when the host says go), and everyone watches it come in.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, followJob, followLive, NetError, type Detail, type Home, type Passage, type Seat } from './api';
+import { api, followJob, followLive, jobResult, NetError, type Detail, type Home, type Passage, type Seat } from './api';
 import { narrator } from './narrator';
 import { NarratorBar, SpeakerIcon } from './NarratorBar';
 import { Feed, LiveBlock, type Live } from './Feed';
@@ -323,6 +323,8 @@ function GameOverCard(p: { d: Detail; busy: boolean; reload: () => Promise<Detai
   );
 }
 
+const IMPERSONATE = /^\/imp(?:ersonate)?(?=\s|$)/i;
+
 // What I tell the Dungeon Master my character does this round, who else is ready, and (for the host) Go.
 function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live | null; onGo: () => void; onStop: () => void; onLevelUp: () => void; reload: () => Promise<Detail | null>; home: Home }) {
   const d = p.d;
@@ -364,8 +366,32 @@ function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live
     clearTimeout(draftT.current);
     draftT.current = window.setTimeout(() => { if (!readyRef.current) api(`/stories/${d.story.id}/action`, { method: 'PUT', body: { text: v, ready: false } }).catch(() => {}); }, 1500);
   };
+  // /impersonate (or /imp), with what I want after it or nothing: the Dungeon Master writes my action into the box, and I
+  // check it before Ready. Stopping it gives the command back.
+  const [writing, setWriting] = useState<null | (() => void)>(null);
+  const isCmd = !ready && IMPERSONATE.test(text.trimStart());
+  const impersonate = async () => {
+    if (writing || sending) return;
+    clearTimeout(draftT.current);
+    const before = text;
+    const hint = text.trimStart().replace(IMPERSONATE, '').trim();
+    setSending(true);
+    try {
+      const { jobId } = await api<{ jobId: string }>(`/stories/${d.story.id}/impersonate`, { body: { hint } });
+      const jr = jobResult<{ text: string }>(jobId, t => setText(t));
+      setText('');
+      setWriting(() => () => { jr.stop(); setWriting(null); setSending(false); setText(before); });
+      const r = await jr.done;
+      setText(r.text);
+      lastServer.current = `false|${r.text}`;
+      api(`/stories/${d.story.id}/action`, { method: 'PUT', body: { text: r.text, ready: false } }).catch(() => {});
+      box.current?.focus();
+    }
+    catch (e) { setText(before); errToast(e); }
+    finally { setWriting(null); setSending(false); }
+  };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); if (text.trim() && !ready) send(true); }
+    if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); if (isCmd) impersonate(); else if (text.trim() && !ready) send(true); }
   };
 
   const players = d.table.filter(s => s.persona_id);
@@ -399,17 +425,24 @@ function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live
           : !me?.persona_id ? <div className="small muted">You're at the table without a character. Open the Party panel to bring one (or just watch and talk).</div> : (
           <div className="prompt-row">
             <Avatar src={me.avatar} name={name} size={32} />
-            <textarea ref={box} rows={1} value={text} onChange={e => onType(e.target.value)} onKeyDown={onKey} readOnly={ready}
+            <textarea ref={box} rows={1} value={text} onChange={e => onType(e.target.value)} onKeyDown={onKey} readOnly={ready || !!writing}
               className={ready ? 'is-ready' : ''}
-              placeholder={`What does ${name} do? Speak in "quotes". (( Double brackets )) are out of character.`} />
+              placeholder={writing ? `Writing ${name}'s action…` : `What does ${name} do? Speak in "quotes". (( Double brackets )) are out of character.`} />
             {ready
               ? <button className="btn" onClick={() => send(false)} disabled={sending} title="Change your action">Change</button>
+              : writing ? <button className="btn" onClick={writing} title="Stop and keep what you typed">Stop</button>
               : <div className="col" style={{ gap: 4 }}>
-                <button className="btn primary" onClick={() => send(true)} disabled={sending || !text.trim()}>Ready</button>
+                {isCmd
+                  ? <button className="btn primary" onClick={impersonate} disabled={sending} title="The Dungeon Master writes your action for you to check">Write it</button>
+                  : <button className="btn primary" onClick={() => send(true)} disabled={sending || !text.trim()}>Ready</button>}
                 <button className="btn sm ghost" onClick={() => send(true, '')} disabled={sending || !!text.trim()} title="Sit this round out">Pass</button>
               </div>}
           </div>
         )}
+        {me?.persona_id && d.begun && !d.gameOver && !ready && !writing && text.trimStart().startsWith('/') && <div className="small dim slash-hint">
+          {isCmd ? <>The Dungeon Master writes {name}'s action{text.trimStart().replace(IMPERSONATE, '').trim() ? ' from what you wrote after the command' : ', picking what they would do'}. You check it, then press Ready.</>
+            : <><b>/impersonate</b> what you want to do: the Dungeon Master writes your action for you to check. On its own, it picks for you.</>}
+        </div>}
       </div>
     </div>
   );

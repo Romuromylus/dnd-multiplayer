@@ -365,6 +365,8 @@ details.icard[open] > summary.icard-h::after { content: "▾"; }
 .badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 700 9.5px/15px var(--mono); padding: 0 3px; }
 .icon-btn { position: relative; }
 .lvl-banner { display: flex; align-items: center; gap: 9px; font-size: 13.5px; border: 1px solid var(--accent); border-radius: 9px; padding: 6px 8px 6px 12px; margin-bottom: 8px; background: var(--accent-soft); }
+.slash-hint { margin: 6px 0 0 42px; }
+.slash-hint b { color: var(--accent); font-weight: 600; }
 .lvl-banner .star { color: var(--accent); }
 .icon-btn .dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 99px; background: var(--accent); }
 

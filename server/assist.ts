@@ -2,7 +2,7 @@
 // built from them, a level-up, a change to a sheet, and a portrait. Each runs as a job of its own, so a long reply streams and
 // a slow one isn't cut off on the way.
 import { emit, type Job } from './jobs.ts';
-import { callModel, type Msg, type SysPart } from './llm.ts';
+import { callModel, type Conn, type Msg, type SysPart } from './llm.ts';
 import { callJson, withRoom } from './ask.ts';
 import * as R from './records.ts';
 import { BANNED_NAMES } from './rules.ts';
@@ -314,6 +314,61 @@ export async function runSheetEdit(job: Job, o: { kind: 'levelup' | 'edit'; name
   const r = await callJson<{ fields: Record<string, any>; summary: string }>({ conn, system: [{ text: sheetEditSystem(o.kind) }], messages: [{ role: 'user', content: [{ type: 'text', text: user }] }], maxTokens: 9000, signal: job.abort.signal }, { ok: j => !!j?.fields && typeof j.fields === 'object' });
   if (!r.json) throw new Error(`The sheet could not be changed. ${r.why}`);
   emit(job, 'assist', { fields: keepKnown(r.json.fields), summary: String(r.json.summary ?? '').trim() });
+}
+
+// ---------------------------------------------------------------- a player's action, written for them (/impersonate)
+
+export function impersonateSystem(): string {
+  return `You help a player in a D&D 5th Edition campaign played in text. Each round, every player writes what their character does and the Dungeon Master writes what happens. This player asked you to write their character's action for this round. They read it, change it if they like, and send it themselves.
+
+<what_you_write>
+- What their character does and says now, as the player would write it in the action box. Speech goes in "double quotes". A short note to the Dungeon Master, if one is needed, goes in ((double brackets)).
+- When the player says what they want (<player_wants>), that is the action: keep all of it and keep its meaning, and add only the how and the words that fit this character in this moment. When they leave it to you, pick what this character would most likely do now, true to their personality and to what the last passage ended on.
+- Declare, never resolve. Write what the character tries, never how it turns out: no hits or misses, no damage, no rolls, nobody's reaction, nothing they find or learn.
+- Only this character. Never say what another character does, thinks or answers, the other players' or anyone else's. They can talk to them, ask them, help them, follow them.
+- Only what the character could know and can see: the page and their sheet. No secrets, no guesses about what is hidden.
+- In a fight, what fits one turn: movement, one action, a bonus action if they have one that fits, maybe a reaction they ready. Use the sheet: name the attack, spell or feature exactly as it is written there ("I cast Shield of Faith on Liz, bonus action"), with what it costs (a spell slot, a use of a feature), and only what is left: a slot or a use at 0 is gone until it comes back. If the player asks for something the sheet no longer has, write the nearest thing it does have and say why in a short ((note)).
+- When the player left it to you, take no big step they didn't ask for: no attack on someone who isn't hostile, no leaving the party, no spending a rare item or a last resource.
+- Match how this player writes, from <their_past_actions>: first or third person, the language they write in (Tagalog, Taglish, English...), how long, how playful. With no past actions, write in the first person ("I draw my spear..."), in the language of <player_wants>, or English.
+- As long as a player's action usually is: one to four sentences, unless they asked for a speech or a plan.
+- Plain text only: no preamble, no name label, no markdown, no list. Reply with the action and nothing else.
+</what_you_write>`;
+}
+
+export type ImpersonateAsk = { name: string; sheet: Record<string, string>; who: string; hint: string; story: string; scene: string; party: string; mine: string[] };
+
+export function impersonateUser(o: ImpersonateAsk): string {
+  return [
+    `<story_so_far note="The latest part of the campaign, as the players read it. The last passage is where things stand now.">\n${o.story || '(nothing yet)'}\n</story_so_far>`,
+    o.scene ? `<scene_now>\n${o.scene}\n</scene_now>` : '',
+    `<character name="${o.name}" note="Their sheet as it stands now: what they can do, and what they have used up">\n${SHEET_KEYS.map(k => `${k}: ${o.sheet[k] ?? ''}`).join('\n')}\n</character>`,
+    o.who ? `<who_they_are note="Written by their player">\n${clip(o.who, 3000)}\n</who_they_are>` : '',
+    o.party ? `<party note="The other characters at the table. Their players speak for them.">\n${o.party}\n</party>` : '',
+    o.mine.length ? `<their_past_actions note="How this player writes, newest last. Match their person, language, length and tone, not what they did.">\n${o.mine.map(t => `- ${t}`).join('\n')}\n</their_past_actions>` : '',
+    o.hint.trim() ? `<player_wants>\n${clip(o.hint.trim(), 2000)}\n</player_wants>` : '<player_wants>(nothing: they left it to you)</player_wants>',
+    `Write ${o.name}'s action for this round now.`,
+  ].filter(Boolean).join('\n\n');
+}
+
+// The reply as the action box takes it: no label, tag or wrapping the model may have added.
+export function cleanAction(text: string, name: string): string {
+  let t = text.replace(/\r/g, '').trim().replace(/^<action[^>]*>\s*|\s*<\/action>$/g, '');
+  const first = name.trim().split(/\s+/)[0];
+  for (const n of [name.trim(), first, 'Action'].filter(Boolean)) t = t.replace(new RegExp(`^\\**${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\**\\s*:\\s*`, 'i'), '');
+  return t.trim();
+}
+
+export async function runImpersonate(job: Job, conn: Conn, o: ImpersonateAsk) {
+  // A quick answer is wanted: little thinking, unless the connection has it off.
+  const level = conn.thinking_level === 'off' ? 'off' : 'low';
+  emit(job, 'phase', { phase: 'write', label: 'writing your action' });
+  const r = await callModel({
+    conn, system: [{ text: impersonateSystem() }], messages: [{ role: 'user', content: [{ type: 'text', text: impersonateUser(o) }] }],
+    thinking: level, maxTokens: withRoom(conn, 1200, level), signal: job.abort.signal, onText: delta => emit(job, 'text', { delta }),
+  });
+  const text = cleanAction(r.text, o.name);
+  if (!text) throw new Error('Nothing came back. Try again.');
+  emit(job, 'assist', { text });
 }
 
 // ---------------------------------------------------------------- a character's portrait

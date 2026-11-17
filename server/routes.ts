@@ -10,7 +10,7 @@ import { modeSchema, NPC, normalizeSettings, defaultSettings, SHEET, SHEET_KEYS 
 import { closeChapter, rollupArc, summarizeChapter } from './chapters.ts';
 import { ensureSheets, flushPendingRecords, getGuidance, guidanceKey, levelEarned, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
 import { ART_WIDTHS, artMap, artWatchers, assetPath, deleteAsset, deleteStoryImages, enqueuePortraits, enqueueSceneArt, getAsset, imageConn, pump, redoAsset, sceneKey, sizedFile } from './art.ts';
-import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runLevelChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
+import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runImpersonate, runLevelChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
 import { voiceApi } from './voice.ts';
 import { broadcast, liveResponse, online } from './live.ts';
 import * as A from './auth.ts';
@@ -728,6 +728,59 @@ api.put('/stories/:id/action', async c => {
   // The answer says whether this started the round, which took the action off the table.
   const started = maybeStartRound(story.id);
   return c.json({ ok: true, started: !!started });
+});
+
+// /impersonate: the Dungeon Master writes a player's action for them, from what they add after the command (or its own pick),
+// and the player checks it before Ready. It reads only what that player can see at the table: the page, the scene, the party's
+// sheets, the actions readied so far, their own character's description and how they wrote their past actions.
+const ACTION_RE = /<action by="([^"]*)">\s*([\s\S]*?)\s*<\/action>/g;
+function impersonateContext(story: R.Story, userId: number, personaId: number, card: any) {
+  const name = String(card.fields?.name || 'their character');
+  const open = R.openChapter(story.id);
+  const items = R.chapterPassages(open.id).filter(p => ['prose', 'direction', 'note'].includes(p.kind)).map(p =>
+    p.kind === 'prose' ? `<passage>\n${p.text.trim()}\n</passage>`
+      : p.kind === 'note' ? `<note>${p.text.trim()}</note>`
+      : `<round>\n${[...p.text.matchAll(ACTION_RE)].map(m => `${m[1]}: ${m[2].replace(/\n+/g, ' ')}`).join('\n')}\n</round>`);
+  const kept: string[] = [];
+  let size = 0;
+  for (let i = items.length - 1; i >= 0 && kept.length < 10 && size + items[i].length <= 10000; i--) { kept.unshift(items[i]); size += items[i].length; }
+  // A chapter only just opened starts from how the last one ended.
+  const before = db.prepare(`select summary from chapters where story_id = ? and number < ? and summary != '' order by number desc limit 1`).get(story.id, open.number) as any;
+  if (before && kept.filter(t => t.startsWith('<passage>')).length < 3) kept.unshift(`<earlier note="How the last chapter went">\n${clip(before.summary, 3000)}\n</earlier>`);
+  const sc = R.getSceneState(story.id);
+  const scene = [sc.place && `Place: ${sc.place}`, sc.story_time && `Time: ${sc.story_time}`, sc.weather && `Weather: ${sc.weather}`, sc.initiative && `Initiative: ${sc.initiative}`,
+    sc.present.length ? `Present:\n${sc.present.map(x => `- ${x.name}${x.doing ? `: ${x.doing}` : ''}${x.condition ? ` (${x.condition})` : ''}`).join('\n')}` : ''].filter(Boolean).join('\n');
+  const ready = new Map((db.prepare(`select user_id, text from actions where story_id = ? and ready = 1 and trim(text) != ''`).all(story.id) as any[]).map(a => [a.user_id, a.text as string]));
+  const party = R.party(story.id).filter(m => m.personaId !== personaId).map(m => {
+    const f = m.card?.fields ?? {};
+    const act = ready.get(m.userId);
+    return `- ${m.name}: ${[f.species, f.class].filter(Boolean).join(' ')}${f.hp ? `, HP ${f.hp}` : ''}${f.conditions && !/^none\.?$/i.test(f.conditions.trim()) ? `, ${f.conditions}` : ''}${act ? `\n  Their action this round: ${clip(act.replace(/\n+/g, ' '), 800)}` : ''}`;
+  }).join('\n');
+  // How this player writes: their last few actions, from the rounds kept in the campaign.
+  const mine: string[] = [];
+  const rounds = db.prepare(`select text from passages where story_id = ? and kind = 'direction' order by id desc limit 40`).all(story.id) as { text: string }[];
+  const esc = name.replace(/"/g, "'");
+  for (const r of rounds) {
+    for (const m of r.text.matchAll(ACTION_RE)) if (m[1] === esc && m[2].trim() && mine.length < 4) mine.unshift(clip(m[2].replace(/\n+/g, ' '), 600));
+    if (mine.length >= 4) break;
+  }
+  const persona = db.prepare('select description from personas where id = ? and user_id = ?').get(personaId, userId) as any;
+  return { name, sheet: card.fields, who: String(persona?.description ?? ''), story: kept.join('\n\n'), scene, party, mine };
+}
+api.post('/stories/:id/impersonate', async c => {
+  const story = campaign(c); if (failed(story)) return story;
+  const me = A.me(c).id;
+  const s = seatOf(story.id, me);
+  if (!s?.persona_id) return bad(c, 'Bring a character to the table first.');
+  if (!begun(story.id)) return bad(c, "The campaign hasn't begun yet.", 409);
+  if (gameOver(story.id)) return bad(c, GAME_OVER, 409);
+  const conn = R.storyConns(story).writer;
+  if (!conn) return bad(c, 'No Dungeon Master connection is set up yet: an admin adds one under Connections.');
+  const card = R.userCard(story.id, s.persona_id);
+  if (!card) return bad(c, 'Your character has no sheet in this campaign yet.');
+  const hint = str((await body(c)).hint, 2000);
+  const ctx = impersonateContext(story, me, s.persona_id, card);
+  return helperJob(c, 'assist', 'Writing your action', j => runImpersonate(j, conn, { ...ctx, hint }), story.id);
 });
 
 // The host begins the campaign once the table is gathered: the Dungeon Master writes the opening scene, bringing in every

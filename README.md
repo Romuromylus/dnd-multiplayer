@@ -23,6 +23,10 @@ threads; a continuity check reads each passage against them; chapters close into
 - **Rounds.** Write what your character does, in "quotes" for speech and ((double brackets)) for out-of-character
   questions, then press Ready (or Pass). The round starts once every player marked *here* is ready, or when the host
   presses Go (a campaign setting). Players marked *away* tag along doing nothing new.
+- **/impersonate** (or `/imp`) in the action box, with what you want after it ("/impersonate I draw my spear and go for the
+  nearest one") or on its own: the Dungeon Master writes your character's action for you, in your voice and from your
+  sheet (what you have, and what you've used up), declaring what they try and never how it turns out. You check it and
+  change it if you like, then press Ready. It reads only what you can see at the table.
 - **Fights** are built to the 5e XP budget for the party at the table (a first job stays easy to medium), and foes break
   and run when a fight turns against them. When every character is down at 0 HP at once, it's **game over**: the table
   stops, and the host picks **Try the fight again** (back to just before it began, sheets and all), **Go back one
