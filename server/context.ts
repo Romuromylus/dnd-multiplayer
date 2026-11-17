@@ -328,6 +328,16 @@ export function readingCheck(storyId: number, tone = 'source'): string[] {
   }
   const beats = BEATS.map(([label, re]) => [label, (recent.match(re) ?? []).length] as const).filter(([, n]) => n / rw >= 4 / 5000);
   if (beats.length) out.push(`Beats used again and again lately: ${beats.map(([l, n]) => `${l}, ${n} times`).join('; ')}. Drop them or find another way.`);
+  // Talk and narration measured against popular human fanfic: there a spoken line runs 11 to 14 words and about a third of
+  // lines are five words or fewer, and narration has under 2 uncontracted negatives ("did not") in 1,000 words.
+  const said = [...recent.matchAll(/["\u201c]([^"\u201d\n]*)["\u201d]/g)].map(m => wordCount(m[1])).filter(n => n > 0);
+  if (said.length >= 40) {
+    const avg = said.reduce((a, n) => a + n, 0) / said.length, short = said.filter(n => n <= 5).length / said.length;
+    if (avg >= 17 || short < 0.2) out.push(`Spoken lines lately run ${Math.round(avg)} words on average, and ${Math.round(short * 100)} in 100 are five words or fewer (in popular fanfic it is about 12 words, and a third are that short): people are making speeches. Break talk into short turns, a line or two before someone answers, reacts or cuts in, with contractions and the small words people use ("yeah", "wait", "okay").`);
+  }
+  const narrWords = wordCount(narration.replace(/@@/g, ' '));
+  const negs = (narration.match(/\b(?:did|was|were|had|could|would|is|are|do|does|has|have) not\b/gi) ?? []).length;
+  if (narrWords >= 1500 && negs / narrWords * 1000 >= 4) out.push(`The narration lately has ${negs} uncontracted negatives ("did not", "was not", "had not") in ${narrWords} words, several times what popular fanfic uses: it reads stiff. Write "didn't", "wasn't", and say what happened instead of what didn't.`);
 
   // The rest compares the recent text with what came before it.
   const early = texts.slice(0, from).join('\n\n');

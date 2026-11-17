@@ -44,6 +44,9 @@ export function polishFlags(story: R.Story, text: string): string[] {
   }
   const beats = BEATS.map(([label, re]) => [label, (narration.match(re) ?? []).length] as const).filter(([, n]) => n >= 4);
   if (beats.length) out.push(`Beats used again and again: ${beats.map(([l, n]) => `${l}, ${n} times`).join('; ')}. Keep the one that matters most and reword or cut the rest.`);
+  // Uncontracted negatives in narration ("He did not answer."): popular fanfic writes "didn't", and says what happened.
+  const negs = narration.split(/(?<=[.!?])\s+|\n+/).filter(x => !x.includes('@@') && /\b(?:did|was|were|had|could|would|is|are|do|does|has|have) not\b/i.test(x));
+  if (negs.length >= 3 && negs.length / words * 1000 >= 5) out.push(`Stiff negatives: ${negs.length} sentences of narration say "did not", "was not" or "had not" (${cap(negs.map(x => x.split(/\s+/).slice(0, 8).join(' ')), 8)}). Write them with contractions ("didn't", "wasn't"), or say what happened instead of what didn't.`);
 
   // Repeated wording, counted inside a sentence (never across a full stop or a spoken line), and a long repeated
   // phrase is one finding, not every four words of it.
