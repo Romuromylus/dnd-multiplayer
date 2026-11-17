@@ -281,6 +281,7 @@ export function dndWriteReminders(s: StorySettings): string {
 - ${on(s, 'scene_tracker')
     ? 'The passage contains only the story and its roll lines, plus a <scene> line wherever the place changes or time jumps (at the start, and at any cut partway through), a <ruling> line wherever the rules or a sheet cut a player\'s action short, and an <inspiration> line at the very end when one is awarded. No notes, headings, sheets or other tags.'
     : 'The passage contains only the story and its roll lines, plus a <ruling> line wherever the rules or a sheet cut a player\'s action short, and an <inspiration> line at the very end when one is awarded: no notes, headings, scene lines, sheets or other tags.'}
+- One read is enough, however long the campaign runs: full sentences, the thing named instead of "it", everyday words, and dialogue that says what the speaker means. Long campaigns drift toward riddling lines, wise-sounding sayings, invented titles and nicknames, old-fashioned phrasing and lore piled on lore: the recent passages are not the model for how plainly to write, the campaign's opening is. Write so the players at this table, who write their actions in plain everyday words, follow every line. When a player asks what something means or why something happened, someone in the scene answers it plainly before anything new happens. If the pack has a reading check, act on each point in it.
 - A mode is ON exactly when its block (<dead_dove_mode>, <friction_mode>) appears anywhere in these instructions, and OFF when it doesn't.
 </reminders>`);
 }

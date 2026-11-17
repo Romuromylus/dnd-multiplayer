@@ -1,7 +1,7 @@
 // The polish pass: a new passage is measured, and when it shows the habits a long story drifts into, a separate editor
 // with none of the story in front of it repairs the paragraphs that hold them. The editor returns only what it changed,
 // and a change is taken only when it leaves every spoken line, color and tag as it was.
-import { BEATS, plainText, readingCheck, wordCount } from './context.ts';
+import { BEATS, nameWords, plainText, readingCheck, STOP, wordCount } from './context.ts';
 import { bannedHits } from './rules.ts';
 import { emit, type Job } from './jobs.ts';
 import { callModel, zeroUsage, type Conn, type Usage } from './llm.ts';
@@ -11,7 +11,6 @@ import { on, SLOP_PATTERNS, type StorySettings } from './rules.ts';
 const QUOTE = /["“][^"”\n]*["”]/g;
 // Thoughts, songs and writing set in italics: like speech, they are the characters' own words.
 const ITALIC = /\*[^*\n]+\*|_[^_\n]+_/g;
-const STOP = new Set('the a an and or but of to in on at for with from by as is was were be been it its he she they them his her their i you we me my your our that this then than so not no just like into out up down over back what who all had has have did do does said says would could will can there here when while if one'.split(' '));
 
 // Passages a line editor can work on: prose with colored speech at most. A visual novel script names its speakers.
 export const polishes = (s: StorySettings) => s.polish === 'on';
@@ -49,12 +48,13 @@ export function polishFlags(story: R.Story, text: string): string[] {
   // Repeated wording, counted inside a sentence (never across a full stop or a spoken line), and a long repeated
   // phrase is one finding, not every four words of it.
   const grams = new Map<string, { n: number; at: number }>();
+  const names = nameWords(story.id, [text]);
   let at = 0;
   for (const seg of narration.toLowerCase().split(/@@|[.!?;:\n]+/)) {
     const w = seg.replace(/[^a-z'\s-]/g, ' ').split(/\s+/).filter(Boolean);
     for (let i = 0; i + 4 <= w.length; i++, at++) {
       const g = w.slice(i, i + 4);
-      if (g.filter(x => !STOP.has(x)).length < 2) continue;
+      if (g.filter(x => !STOP.has(x)).length < 2 || g.some(x => names.has(x))) continue;
       const k = g.join(' '), e = grams.get(k);
       if (e) e.n++; else grams.set(k, { n: 1, at });
     }
@@ -94,6 +94,7 @@ Rules:
 - Never change what happens, who does it, the order of events, the point of view, the tense or the tone.
 - Add no new events, facts, descriptions, comparisons or figures of speech. Cut nothing that tells the reader something.
 - Write in plain, everyday words and full sentences, in the voice the passage already has.
+- Names stay. A person, place, power, form, technique or item keeps the name the passage gives it; never swap a name for a description.
 - Change as few paragraphs as the problems need. A paragraph with none of the listed problems stays as it is.
 - A paragraph marked "locked" is there for context only.
 

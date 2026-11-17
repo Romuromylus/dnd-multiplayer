@@ -5,7 +5,7 @@ import { craftRules } from './modes.ts';
 import { forParty } from './rules_dnd.ts';
 import { on, parseBanned, SLOP_PATTERNS } from './rules.ts';
 import { cardText, colorsSpeech, ledgerText } from './tools.ts';
-import { estTokens, normName } from './util.ts';
+import { clip, estTokens, normName } from './util.ts';
 
 export const BUDGET = {
   verbatimTail: 12000,
@@ -220,18 +220,44 @@ export function recentBeats(storyId: number) {
   return rows;
 }
 
+export const STOP = new Set('the a an and or but of to in on at for with from by as is was were be been it its he she they them his her their i you we me my your our that this then than so not no just like into out up down over back what who all had has have did do does said says would could will can there here when while if one'.split(' '));
+
+// Names, lowercased: the cast's, and any word the story mostly writes with a capital letter in the middle of a sentence
+// (people, places, and the source's powers and forms: "Super Saiyan", "Boosted Gear"). Repeated wording with a name in
+// it is the story calling a thing by its name, which it should go on doing, so it is never fed back as a phrase to say
+// another way. At the start of a sentence a capital says nothing, unless the next word has one too ("Super Saiyan Three").
+export function nameWords(storyId: number, texts: string[]): Set<string> {
+  const caps = new Map<string, number>(), all = new Map<string, number>();
+  const word = (t = '') => /^[A-Za-z]/.test(t), title = (t = '') => /^[A-Z][a-z]/.test(t);
+  for (const t of texts) {
+    const toks = [...plainText(t).matchAll(/[A-Za-z][A-Za-z'-]*|[.!?\u2026\n"\u201c\u201d*_(]/g)].map(m => m[0]);
+    toks.forEach((tok, i) => {
+      if (!word(tok)) return;
+      const w = tok.toLowerCase();
+      all.set(w, (all.get(w) ?? 0) + 1);
+      if (title(tok) && ((i > 0 && word(toks[i - 1])) || title(toks[i + 1]))) caps.set(w, (caps.get(w) ?? 0) + 1);
+    });
+  }
+  const out = new Set([...caps].filter(([w, n]) => n * 2 >= all.get(w)!).map(([w]) => w));
+  // The player characters at the table count as names too.
+  for (const n of [...R.listCards(storyId).flatMap(c => [c.name, ...c.aliases]), ...R.party(storyId).map(p => p.name)])
+    for (const w of String(n).toLowerCase().split(/[^a-z'-]+/)) if (w) out.add(w);
+  for (const w of STOP) out.delete(w);
+  return out;
+}
+
 // Phrases repeated across recent passages, plus Anti-Slop hits: fed back so the writer varies them.
-const STOP = new Set('the a an and or but of to in on at for with from by as is was were be been it its he she they them his her their i you we me my your our that this then than so not no just like into out up down over back what who all had has have did do does said says would could will can there here when while if one'.split(' '));
 export function overusedPhrases(storyId: number): string[] {
   const texts = (db.prepare(`select p.text from passages p join chapters c on c.id = p.chapter_id where p.story_id = ? and p.kind = 'prose' order by c.number desc, p.seq desc limit 6`).all(storyId) as any[]).map(r => r.text as string);
   if (texts.length < 3) return [];
+  const names = nameWords(storyId, texts);
   const seen = new Map<string, number>();
   for (const t of texts) {
     const words = t.toLowerCase().replace(/<scene>[^<]*<\/scene>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/[^a-z'\s-]/g, ' ').split(/\s+/).filter(Boolean);
     const grams = new Set<string>();
     for (let i = 0; i + 4 <= words.length; i++) {
       const g = words.slice(i, i + 4);
-      if (g.filter(w => !STOP.has(w)).length < 2) continue;
+      if (g.filter(w => !STOP.has(w)).length < 2 || g.some(w => names.has(w))) continue;
       grams.add(g.join(' '));
     }
     for (const g of grams) seen.set(g, (seen.get(g) ?? 0) + 1);
@@ -258,6 +284,27 @@ export const BEATS: [string, RegExp][] = [
 ];
 export const plainText = (t: string) => t.replace(/<scene>[^<]*<\/scene>/g, ' ').replace(/<chaphead>[^<]*<\/chaphead>/g, ' ').replace(/<[^>]+>/g, ' ');
 export const wordCount = (t: string) => (t.match(/\S+/g) ?? []).length;
+// Someone at the table saying they can't follow ("I don't understand", "what do you mean?", "explain it simply", in English
+// or Tagalog) is the plainest sign that the story has grown hard to read. It is counted over their last dozen turns.
+export const LOST = /what (?:do|does|did) (?:you|u|he|she|they|it|that|this) mean|\bi (?:do ?n[o']?t|dont|don't|can'?t|cannot) (?:really |quite )?(?:understand|get it|follow)|\bconfus(?:ed|ing)\b|explain (?:it |this |that )?(?:to me )?like i'?m|in simple terms|\bi'?m (?:so |completely )?lost\b|\bat a loss\b|\b(?:di|hindi) ko (?:gets|ma(?:ka)?intindihan|naiintindihan)|naguguluhan|nalilito|\bano(?:ng)? ibig (?:mong |niyang |nilang )?sabihin/i;
+export function lostLine(storyId: number): string {
+  const dirs = (db.prepare(`select text from passages where story_id = ? and kind = 'direction' order by id desc limit 12`).all(storyId) as any[]).map(r => String(r.text)).reverse();
+  const said: { who: string; line: string }[] = [];
+  let n = 0;
+  for (const d of dirs) {
+    // A table's round holds each player's action in its own tag; a story's direction is the player's own words.
+    const acts = [...d.matchAll(/<action by="([^"]*)">([\s\S]*?)<\/action>/g)].map(m => ({ who: m[1], text: m[2] }));
+    let hit = false;
+    for (const { who, text } of acts.length ? acts : [{ who: '', text: d }])
+      for (const s of text.replace(/<[^>]+>/g, ' ').split(/(?<=[.!?])\s+|\n+/))
+        if (LOST.test(s)) { said.push({ who, line: clip(s.trim(), 90) }); hit = true; }
+    if (hit) n++;
+  }
+  if (n < 2) return '';
+  const who = [...new Set(said.map(s => s.who).filter(Boolean))];
+  return `${who.length ? who.join(' and ') : 'A player'} said in ${n} of the last ${dirs.length} turns that they can't follow what is going on (${said.slice(-3).map(s => `"${s.line}"`).join(', ')}). Write more plainly from here: answer what was asked in everyday words, call people by their names, say what any custom, bargain or term the scene turns on means, and bring in no new names or lore until the ones in play are clear.`;
+}
+
 export function readingCheck(storyId: number, tone = 'source'): string[] {
   const texts = (db.prepare(`select p.text from passages p join chapters c on c.id = p.chapter_id where p.story_id = ? and p.kind = 'prose' and p.records_status != 'unplayed' order by c.number, p.seq`).all(storyId) as any[]).map(r => plainText(r.text as string));
   // Recent: the last passages, back to about two chapters' worth. Opening: the same amount from the start.
@@ -266,8 +313,9 @@ export function readingCheck(storyId: number, tone = 'source'): string[] {
   while (from > 0 && got < SPAN) { from--; got += wordCount(texts[from]); }
   const recent = texts.slice(from).join('\n\n');
   const rw = wordCount(recent);
-  if (rw < 2500) return [];
-  const out: string[] = [];
+  const lost = lostLine(storyId);
+  if (rw < 2500) return lost ? [lost] : [];
+  const out: string[] = lost ? [lost] : [];
 
   // A sentence with speech in it is left out: its "she said" is not a clipped sentence.
   const narration = recent.replace(/["\u201c][^"\u201d\n]*["\u201d]/g, ' @@ ');
@@ -375,7 +423,7 @@ export function buildPack(story: R.Story, mode: 'writer' | 'records' | 'check', 
     const rc = readingCheck(story.id, s.tone);
     if (rc.length) out.push(`<reading_check>Measured from the campaign's own text, opening against recent. Each point is something to correct in what you write next:\n${rc.map(x => `- ${x}`).join('\n')}</reading_check>`);
     const ov = overusedPhrases(story.id);
-    if (ov.length) out.push(`<overused_phrases>These already appear in several recent passages. Don't reuse them; find a fresh way or skip the beat: ${ov.join(', ')}</overused_phrases>`);
+    if (ov.length) out.push(`<overused_phrases>These already appear in several recent passages. Don't reuse them; find a fresh way or skip the beat: ${ov.join(', ')}. Names are never on this list: people, places, powers and forms are still called by their names.</overused_phrases>`);
   }
   const banned = mode === 'writer' ? parseBanned(s.banned_phrases) : [];
   if (banned.length) out.push(`<banned_phrases>Never use these words or phrases: ${banned.join(', ')}</banned_phrases>`);
