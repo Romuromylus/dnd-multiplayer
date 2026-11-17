@@ -194,7 +194,7 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
             {d.table.filter(s => s.persona_id).map(s => <span key={s.user_id} className={`face ${d.online.includes(s.user_id) ? 'on' : ''}`} title={`${s.name} (${s.player})`}><Avatar src={s.avatar} name={s.name} size={26} /></span>)}
           </div>
           <button className="icon-btn" onClick={() => narrator.setPanel(!narrator.s.panel)} aria-label="Narrator" title="Read aloud"><SpeakerIcon /></button>
-          <button className={`icon-btn ${side === 'party' ? 'on' : ''}`} onClick={() => setSide(side === 'party' ? null : 'party')} title="The party" aria-label="The party">☗</button>
+          <button className={`icon-btn ${side === 'party' ? 'on' : ''}`} onClick={() => setSide(side === 'party' ? null : 'party')} title={mySeat?.levelUp ? 'The party (you can level up)' : 'The party'} aria-label="The party">☗{mySeat?.levelUp && <span className="dot" />}</button>
           <button className={`icon-btn ${side === 'chat' ? 'on' : ''}`} onClick={() => setSide(side === 'chat' ? null : 'chat')} title="Table talk" aria-label="Table talk">💬{unread > 0 && <span className="badge">{unread}</span>}</button>
           <button className={`icon-btn ${side === 'records' ? 'on' : ''}`} onClick={() => setSide(side === 'records' ? null : 'records')} title="Records: people, threads, chapters" aria-label="Records">☰</button>
           {d.host && <button className="icon-btn" onClick={() => setModal({ kind: 'guidance' })} title={d.guidance ? 'DM guidance (on; only you see it)' : 'DM guidance (only you see it)'} aria-label="DM guidance">📜{d.guidance && <span className="dot" />}</button>}
@@ -219,7 +219,7 @@ export function TableView(p: { id: number; home: Home; reloadHome: () => Promise
         </div>
 
         <NarratorBar storyId={p.id} storyTitle={d.story.title} unit="round" onLatest={lastProse ? () => narrator.play(p.id, d.story.title, [{ id: lastProse.id, label: 'The latest round' }]) : null} />
-        <Composer d={d} mySeat={mySeat} busy={busy} live={live} onGo={() => startJob(`/stories/${p.id}/go`)} onStop={() => live && api(`/jobs/${live.jobId}/stop`, { body: {} }).catch(errToast)} reload={load} home={p.home} />
+        <Composer d={d} mySeat={mySeat} busy={busy} live={live} onGo={() => startJob(`/stories/${p.id}/go`)} onStop={() => live && api(`/jobs/${live.jobId}/stop`, { body: {} }).catch(errToast)} onLevelUp={() => mySeat?.persona_id && setModal({ kind: 'sheet', personaId: mySeat.persona_id })} reload={load} home={p.home} />
       </div>
 
       {side && <div className="side-scrim show-mobile" onClick={() => setSide(null)} />}
@@ -324,7 +324,7 @@ function GameOverCard(p: { d: Detail; busy: boolean; reload: () => Promise<Detai
 }
 
 // What I tell the Dungeon Master my character does this round, who else is ready, and (for the host) Go.
-function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live | null; onGo: () => void; onStop: () => void; reload: () => Promise<Detail | null>; home: Home }) {
+function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live | null; onGo: () => void; onStop: () => void; onLevelUp: () => void; reload: () => Promise<Detail | null>; home: Home }) {
   const d = p.d;
   const [text, setText] = useState(d.myAction?.text ?? '');
   const [ready, setReady] = useState(!!d.myAction?.ready);
@@ -390,6 +390,10 @@ function Composer(p: { d: Detail; mySeat: Seat | null; busy: boolean; live: Live
           {!p.live && d.host && d.begun && !d.gameOver && <button className="btn sm primary" onClick={p.onGo} disabled={p.busy || !d.conns.writer} title={auto ? 'Start the round now with whoever is ready' : 'Start the round'}>Go</button>}
         </div>
         {!d.conns.writer && <div className="small dim" style={{ marginBottom: 6 }}>No Dungeon Master connection is set up yet: an admin adds one under Connections.</div>}
+        {me?.persona_id && me.levelUp && d.begun && !d.gameOver && <div className="lvl-banner">
+          <span className="star">✦</span><span className="grow">{name} has earned level {me.levelTo}.</span>
+          <button className="btn sm primary" onClick={p.onLevelUp}>Level up</button>
+        </div>}
         {!d.begun ? <div className="small muted">{p.live ? 'The Dungeon Master is opening the campaign.' : 'The first round comes after the opening scene.'}</div>
           : d.gameOver && !p.live ? <div className="small muted">Game over: the whole party is down. {d.host ? 'Pick what happens next, above.' : 'The host decides what happens next.'}</div>
           : !me?.persona_id ? <div className="small muted">You're at the table without a character. Open the Party panel to bring one (or just watch and talk).</div> : (

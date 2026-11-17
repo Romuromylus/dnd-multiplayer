@@ -30,7 +30,8 @@ threads; a continuity check reads each passage against them; chapters close into
 - **Rulings.** When the rules or a sheet cut an action short (Action Surge already spent, a spell and a weapon attack in
   one turn, a spell the sheet doesn't have), the passage says so in a plain **Ruling** line where it happens, so a
   player can tell a rule from a skipped move.
-- **Levelling.** XP or milestone. When a character can level up, its player presses Level up and talks it through with
+- **Levelling.** XP or milestone. Level up appears only once a character has earned it: the story notes it once
+  ("Mira has earned level 3!"), and its player gets a banner over the action box. They press Level up and talk it through with
   the Dungeon Master (what the new level gives, then each choice it asks for, with a real 🎲 roll for HP), or just says
   what they want. The AI does the 5e math and shows what changes before it is kept.
 - **The host** can retry, correct or edit a passage, see the Dungeon Master's notes and dice, keep or undo record

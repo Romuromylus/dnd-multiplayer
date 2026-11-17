@@ -7,9 +7,8 @@ import { getJob, JobBusy, runningJob, sseResponse, startJob, stopJob, type Job, 
 import { listModels, testConnection, type Conn } from './llm.ts';
 import * as R from './records.ts';
 import { modeSchema, NPC, normalizeSettings, defaultSettings, SHEET, SHEET_KEYS } from './modes.ts';
-import { XP_LEVELS } from './rules_dnd.ts';
 import { closeChapter, rollupArc, summarizeChapter } from './chapters.ts';
-import { ensureSheets, flushPendingRecords, getGuidance, guidanceKey, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
+import { ensureSheets, flushPendingRecords, getGuidance, guidanceKey, levelEarned, openingRound, roundMarkup, runContinue, runFix, runRecords, runRedoRecords, runTurn, sheetFields, type RoundAction } from './turn.ts';
 import { ART_WIDTHS, artMap, artWatchers, assetPath, deleteAsset, deleteStoryImages, enqueuePortraits, enqueueSceneArt, getAsset, imageConn, pump, redoAsset, sceneKey, sizedFile } from './art.ts';
 import { cleanDraft, runAssist, runAvatar, runBuildSheet, runCharacterChat, runLevelChat, runSheetEdit, type AssistKind, type ChatLine } from './assist.ts';
 import { voiceApi } from './voice.ts';
@@ -513,17 +512,14 @@ function scenesFor(chId: number) {
 
 // Who sits at the table, with each character's sheet as it stands in this campaign and whether they can level up.
 function tableView(story: R.Story) {
-  const milestone = Number(db.prepare('select value from app_kv where key = ?').pluck().get(`milestone:${story.id}`) ?? 0);
   const acts = new Map((db.prepare('select * from actions where story_id = ?').all(story.id) as any[]).map(a => [a.user_id, a]));
   return R.listSeats(story.id).map(s => {
     const card = s.persona_id ? R.userCard(story.id, s.persona_id) : null;
-    const level = parseInt(String(card?.fields?.level ?? '1')) || 1;
-    const xp = parseInt(String(card?.fields?.xp ?? '0').replace(/,/g, '')) || 0;
-    const levelUp = level < 20 && (story.settings.levelling === 'milestone' ? milestone > level : xp >= XP_LEVELS[level]);
+    const levelTo = card ? levelEarned(story, card.fields) : null;
     const a = acts.get(s.user_id);
     return {
       user_id: s.user_id, player: s.display_name, username: s.username, status: s.status, host: s.user_id === story.host_user_id,
-      persona_id: s.persona_id, name: card?.fields?.name || s.name, avatar: s.avatar, sheet: card ? { id: card.id, fields: card.fields, color: card.color } : null, levelUp,
+      persona_id: s.persona_id, name: card?.fields?.name || s.name, avatar: s.avatar, sheet: card ? { id: card.id, fields: card.fields, color: card.color } : null, levelUp: !!levelTo, levelTo,
       action: a ? { ready: !!a.ready, text: a.ready ? a.text : '', drafting: !a.ready && !!a.text, updated_at: a.updated_at } : null,
     };
   });

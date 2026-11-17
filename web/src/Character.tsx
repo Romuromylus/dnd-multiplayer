@@ -2,7 +2,7 @@
 // then theirs to change), and a portrait. A campaign takes a copy of the sheet when the character sits down at its table.
 // The choices can be talked through with the Dungeon Master, who fills the form in as the talk goes, or typed into the boxes.
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { api, buildOf, sheetBuilt, sheetOf, type Home, type Persona } from './api';
+import { api, buildOf, sheetBuilt, sheetOf, xpLevelReady, type Home, type Persona } from './api';
 import { AiWrite, PortraitMaker, shrinkImage, useAssistJob } from './Assist';
 import { buildSetup, DmChat, type ChatLine } from './BuildChat';
 import { Avatar, SheetAi, SheetForm, SheetView } from './Sheet';
@@ -189,7 +189,7 @@ export function CharacterModal(p: { home: Home; persona: Persona | null; onClose
         <div className="row wrap">
           <Seg value={sheetMode === 'levelup' || sheetMode === 'ai' ? 'view' : sheetMode} options={[{ value: 'view', label: 'View' }, { value: 'edit', label: 'Edit by hand' }]} onChange={v => setSheetMode(v as any)} />
           <span className="grow" />
-          {id && built && <button className="btn sm" onClick={() => setSheetMode('levelup')} disabled={!ready}>Level up</button>}
+          {id && built && xpLevelReady(sheet) && <button className="btn sm primary" onClick={() => setSheetMode('levelup')} disabled={!ready}>Level up</button>}
           {id && built && <button className="btn sm" onClick={() => setSheetMode('ai')} disabled={!ready}>Change with AI</button>}
         </div>
         {!id && built && <div className="muted small">Save the character to level them up or change the sheet with AI.</div>}

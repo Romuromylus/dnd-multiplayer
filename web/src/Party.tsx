@@ -121,10 +121,10 @@ export function SheetModal(p: { d: Detail; home: Home; personaId: number; onClos
       {can && <div className="row wrap">
         <Seg value={mode === 'edit' ? 'edit' : 'view'} options={[{ value: 'view', label: 'View' }, { value: 'edit', label: 'Edit by hand' }]} onChange={v => setMode(v as any)} />
         <span className="grow" />
-        <button className={`btn sm ${s.levelUp ? 'primary' : ''}`} onClick={() => setMode('levelup')} disabled={!d.conns.writer && !d.conns.records}>Level up{s.levelUp ? '!' : ''}</button>
+        {s.levelUp && <button className="btn sm primary" onClick={() => setMode('levelup')} disabled={!d.conns.writer && !d.conns.records}>Level up to {s.levelTo}</button>}
         <button className="btn sm" onClick={() => setMode('ai')}>Change with AI</button>
       </div>}
-      {s.levelUp && mode !== 'levelup' && <div className="small" style={{ color: 'var(--accent)' }}>{s.name} has earned a level.</div>}
+      {s.levelUp && mode !== 'levelup' && <div className="small" style={{ color: 'var(--accent)' }}>{s.name} has earned level {s.levelTo}.</div>}
       {can && (mode === 'levelup' || mode === 'ai') && <SheetAi path={`/stories/${d.story.id}/sheets/${p.personaId}/ai`} kind={mode === 'levelup' ? 'levelup' : 'edit'} defs={p.home.schema.sheet}
         current={s.sheet.fields} onCancel={() => setMode('view')}
         onApply={async (f, summary) => { await save(f, summary || (mode === 'levelup' ? 'levelled up' : 'sheet changed'), true); }} />}

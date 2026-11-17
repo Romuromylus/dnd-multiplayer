@@ -1,4 +1,4 @@
-import { db, kvGet } from './db.ts';
+import { db, kvGet, kvSet } from './db.ts';
 import { buildPack, chapterLayout, chapterMessages, systemParts } from './context.ts';
 import { emit, type Job } from './jobs.ts';
 import { callJson, withRoom } from './ask.ts';
@@ -6,7 +6,7 @@ import { addUsage, callModel, supportsTools, zeroUsage, LlmError, type Block, ty
 import * as R from './records.ts';
 import { checkSystem, planStep, recordsSystem, sceneSummarySystem, SHEET, writeReminders } from './modes.ts';
 import { bannedHits, on, type StorySettings } from './rules.ts';
-import { rollTray } from './rules_dnd.ts';
+import { rollTray, XP_LEVELS } from './rules_dnd.ts';
 import { describeCall, readTools, runTool, writeTools, type ToolCtx } from './tools.ts';
 import { clip, estTokens, now, parseJson } from './util.ts';
 import { polishes, runPolish } from './polish.ts';
@@ -207,8 +207,32 @@ export async function runRecords(job: Job, story: R.Story, passageIds: number[],
   });
   setStatus('done');
   for (const p of passages) emit(job, 'changes', { passageId: p.id, changes: R.passageChanges(p.id), cards: R.passageCards(p.id) });
+  announceLevels(job, story);
   enqueuePortraits(story.id);
   return res.usage;
+}
+
+// The level a character has earned and not taken yet (by XP, or the host's milestone), or null.
+export function levelEarned(story: R.Story, fields: Record<string, any> | undefined | null): number | null {
+  const level = parseInt(String(fields?.level ?? '1')) || 1;
+  if (level >= 20) return null;
+  if (story.settings.levelling === 'milestone') return Number(kvGet(`milestone:${story.id}`) ?? 0) > level ? level + 1 : null;
+  const xp = parseInt(String(fields?.xp ?? '0').replace(/,/g, '')) || 0;
+  return xp >= XP_LEVELS[level] ? level + 1 : null;
+}
+
+// When a round's XP lifts a character to a new level, the table hears it once, as a note in the story. (A milestone
+// posts its own note when the host gives it.)
+function announceLevels(job: Job, story: R.Story) {
+  if (story.settings.levelling === 'milestone') return;
+  for (const m of R.party(story.id)) {
+    const to = levelEarned(story, m.card?.fields);
+    const key = `lvlnote:${story.id}:${m.personaId}:${to}`;
+    if (!to || kvGet(key)) continue;
+    kvSet(key, now());
+    const p = R.addPassage(story.id, R.openChapter(story.id).id, 'note', `${m.name} has earned level ${to}!`);
+    emit(job, 'passage', { passage: p });
+  }
 }
 
 // Passages written but not yet recorded (held by a check, cut off, or edited) get recorded before the campaign moves on.

@@ -26,9 +26,17 @@ export type Passage = {
   turn?: { id: number; kind: string; plan?: string; tools?: { name: string; input: any; result: string; who: string }[]; usage: any; model: string; check: Problem[] | null; thinking?: string; dice?: string } | null;
   changes?: Change[]; cards?: InlineCard[]; versions?: number;
 };
+// 5e XP for each level (index 0 is level 1), as on the server. A library sheet levels up once its XP reaches the next one.
+const XP_LEVELS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
+export function xpLevelReady(f: Record<string, string>): boolean {
+  const level = parseInt(String(f.level ?? '1')) || 1;
+  const xp = parseInt(String(f.xp ?? '0').replace(/,/g, '')) || 0;
+  return level < 20 && xp >= XP_LEVELS[level];
+}
+
 export type Seat = {
   user_id: number; player: string; username: string; status: 'active' | 'away'; host: boolean; persona_id: number | null; name: string; avatar: string | null;
-  sheet: { id: number; fields: Record<string, string>; color: string } | null; levelUp: boolean;
+  sheet: { id: number; fields: Record<string, string>; color: string } | null; levelUp: boolean; levelTo: number | null;
   action: { ready: boolean; text: string; drafting: boolean; updated_at: string } | null;
 };
 export type ChatLine = { id: number; user_id: number; who: string; text: string; created_at: string };
