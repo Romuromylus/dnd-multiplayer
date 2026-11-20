@@ -339,6 +339,12 @@ export function readingCheck(storyId: number, tone = 'source'): string[] {
   const negs = (narration.match(/\b(?:did|was|were|had|could|would|is|are|do|does|has|have) not\b/gi) ?? []).length;
   if (narrWords >= 1500 && negs / narrWords * 1000 >= 4) out.push(`The narration lately has ${negs} uncontracted negatives ("did not", "was not", "had not") in ${narrWords} words, several times what popular fanfic uses: it reads stiff. Write "didn't", "wasn't", and say what happened instead of what didn't.`);
 
+  // Comparisons in the narration ("like a", "as if", "the size of"): the writer reaches for them out of habit, so it is shown its own.
+  const LIKE = /\b(?:(?<!would |'d |\u2019d )like an?|as if|as though|the size of|the colou?r of|the shape of)\b/i;
+  // Speech is already blanked out, so the narration around a line of talk ("I THREW TWO!" Sauros jabbed a finger...) counts too.
+  const likes = narration.split(/(?<=[.!?])\s+|\n+/).map(x => x.replace(/@@/g, ' ').replace(/\s+/g, ' ').trim()).filter(x => LIKE.test(x));
+  if (narrWords >= 1500 && likes.length >= 4 && likes.length / narrWords * 1000 >= 1) out.push(`The narration lately has ${likes.length} comparisons in ${narrWords} words, for example ${likes.slice(-3).map(x => `"${clip(x, 90)}"`).join(', ')}. Say what things are and what people do instead, and keep a comparison only where nothing plain can say it.`);
+
   // The rest compares the recent text with what came before it.
   const early = texts.slice(0, from).join('\n\n');
   const ew = wordCount(early);
